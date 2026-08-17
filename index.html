@@ -856,10 +856,15 @@ function pintarChips(){
 }
 
 /* ============================ categorías ============================== */
+/* En la pantalla de carga van por uso: querés las de todos los días arriba,
+   a un toque. En los desplegables van alfabéticas: ahí buscás un nombre. */
 function catsOrdenadas(){
   return ST.cats.slice().sort(function(a,b){
     return (b.frecuencia||0)-(a.frecuencia||0) || a.nombre.localeCompare(b.nombre,'es');
   });
+}
+function catsAlfabeticas(){
+  return ST.cats.slice().sort(function(a,b){ return a.nombre.localeCompare(b.nombre,'es'); });
 }
 function pintarCats(){
   var todas=catsOrdenadas();
@@ -1010,7 +1015,7 @@ function editar(m){
       '<input id="eImp" inputmode="decimal" value="'+m.importe+'"></div>'+
     '<div class="campo"><label>Detalle</label><input id="eDet" value="'+esc(m.detalle)+'"></div>'+
     '<div class="campo"><label>Categoría</label><select id="eCat">'+
-      catsOrdenadas().map(function(c){
+      catsAlfabeticas().map(function(c){
         return '<option'+(c.nombre===m.categoria?' selected':'')+'>'+esc(c.nombre)+'</option>';
       }).join('')+'</select></div>'+
     '<div class="campo"><label>Persona</label><select id="ePer"><option value=""></option>'+
@@ -1358,8 +1363,10 @@ function pintarRevision(){
 
 function filaRevision(l,i){
   var idx=lineasImportables(RES).indexOf(l);
-  var opciones=catsOrdenadas().map(function(c){
-    return '<option'+(c.nombre===l.categoria?' selected':'')+'>'+esc(c.nombre)+'</option>';
+  if(RES._nuevaEn===idx) return formNuevaCategoria(l,idx);
+  var opciones=catsAlfabeticas().map(function(c){
+    return '<option'+(c.nombre===l.categoria?' selected':'')+'>'+
+      (c.emoji?c.emoji+' ':'')+esc(c.nombre)+'</option>';
   }).join('');
   return '<div class="item" style="align-items:flex-start;'+(l.incluir?'':'opacity:.4')+'">'+
     '<input type="checkbox" '+(l.incluir?'checked':'')+' style="width:auto;margin-top:4px" '+
@@ -1373,17 +1380,82 @@ function filaRevision(l,i){
       '<select style="margin-top:6px;width:100%;background:var(--surface-2);border:1px solid var(--line);'+
         'border-radius:9px;padding:7px 8px;color:var(--ink);font-size:14px" '+
         'onchange="ponerCategoria('+idx+',this.value)">'+
-        (l.categoria?'':'<option value="">— elegí una —</option>')+opciones+'</select>'+
+        (l.categoria?'':'<option value="">— elegí una —</option>')+opciones+
+        '<option value="__nueva__">➕ Crear una categoría nueva…</option></select>'+
     '</span>'+
     '<span class="m">'+(l.moneda==='USD'?'U$S '+l.monto.toFixed(2):fmtCorto(l.monto))+'</span></div>';
 }
 
 window.alternarLinea=function(i,v){ lineasImportables(RES)[i].incluir=v; pintarRevision(); };
 window.ponerCategoria=function(i,v){
+  if(v==='__nueva__'){ RES._nuevaEn=i; pintarRevision(); return; }
   var l=lineasImportables(RES)[i];
-  l.categoria=v;
+  l.categoria=quitarEmoji(v);
   l.aprender=true;          // la elegiste vos: que se la guarde para la próxima
   pintarRevision();
+};
+
+/* Los <option> llevan el emoji adelante para que se reconozcan de un vistazo,
+   pero lo que se guarda es el nombre pelado. */
+function quitarEmoji(v){
+  var n=String(v||'');
+  for(var i=0;i<ST.cats.length;i++){
+    var c=ST.cats[i];
+    if(n===c.nombre || n===(c.emoji+' '+c.nombre)) return c.nombre;
+  }
+  return n;
+}
+
+/* Crear una categoría sin salir de la revisión: si tenés que ir a la planilla,
+   perdés el resumen que estabas revisando. */
+function formNuevaCategoria(l,idx){
+  var tipos=(ST.tipos||[]).map(function(t){
+    return '<option'+(t.nombre===TIPO_SUGERIDO?' selected':'')+'>'+esc(t.nombre)+'</option>';
+  }).join('');
+  return '<div class="item" style="flex-direction:column;align-items:stretch;gap:8px;'+
+    'border-color:var(--accent)">'+
+    '<div class="t2" style="white-space:normal">Nueva categoría para <b>'+esc(l.detalle)+'</b></div>'+
+    '<input id="ncNombre" placeholder="Nombre (ej: Delivery)" maxlength="40" '+
+      'style="background:var(--surface-2);border:1px solid var(--line);border-radius:9px;'+
+      'padding:9px 10px;color:var(--ink);font-size:16px">'+
+    '<div style="display:flex;gap:8px">'+
+      '<input id="ncEmoji" value="📌" maxlength="4" style="width:64px;text-align:center;'+
+        'background:var(--surface-2);border:1px solid var(--line);border-radius:9px;'+
+        'padding:9px 4px;color:var(--ink);font-size:18px">'+
+      '<select id="ncTipo" style="flex:1;background:var(--surface-2);border:1px solid var(--line);'+
+        'border-radius:9px;padding:9px 8px;color:var(--ink);font-size:14px">'+tipos+'</select>'+
+    '</div>'+
+    '<div style="display:flex;gap:8px">'+
+      '<button class="btn sec" style="flex:1" onclick="cancelarNuevaCategoria()">Cancelar</button>'+
+      '<button class="btn" style="flex:1" onclick="crearCategoria('+idx+')">Crear</button>'+
+    '</div>'+
+    '<div id="ncMsg"></div></div>';
+}
+var TIPO_SUGERIDO='03. Pagos secundarios';
+
+window.cancelarNuevaCategoria=function(){ RES._nuevaEn=-1; pintarRevision(); };
+
+window.crearCategoria=function(idx){
+  var nombre=(document.getElementById('ncNombre').value||'').trim();
+  var emoji=(document.getElementById('ncEmoji').value||'').trim();
+  var tipo=document.getElementById('ncTipo').value;
+  var msg=document.getElementById('ncMsg');
+  if(!nombre){ msg.innerHTML='<div class="err">Poné un nombre.</div>'; return; }
+  msg.innerHTML='<div class="nota">Creando…</div>';
+  apiPost({ op:'nuevaCategoria', nombre:nombre, emoji:emoji, tipo:tipo }).then(function(r){
+    if(!r||!r.ok) throw new Error((r&&r.error)||'no se pudo');
+    ST.cats.push(r.categoria);
+    store.set('g.cfg',JSON.stringify({cats:ST.cats,tipos:ST.tipos,personas:ST.personas,
+      medios:ST.medios,planilla:ST.planilla}));
+    var l=lineasImportables(RES)[idx];
+    l.categoria=r.categoria.nombre;
+    l.aprender=true;
+    RES._nuevaEn=-1;
+    pintarRevision();
+    toast('✅ Categoría "'+esc(r.categoria.nombre)+'" creada');
+  }).catch(function(e){
+    msg.innerHTML='<div class="err">'+esc(e.message)+'</div>';
+  });
 };
 
 window.confirmarResumen=function(){
