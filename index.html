@@ -200,6 +200,11 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .toast button{color:var(--accent);font-weight:600;font-size:14px;padding:4px 2px}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--surface-2);
   font-size:11px;color:var(--muted);margin-left:6px}
+/* El asterisco del disponible: lo que se sabe que viene y todavía no cargaste */
+.aviso{display:flex;flex-direction:column;gap:2px;background:var(--surface);
+  border:1px solid rgba(230,103,103,.35);border-radius:12px;padding:9px 12px;margin-top:8px;
+  font-size:13px;color:var(--ink-2)}
+.aviso span{font-size:11.5px;color:var(--muted)}
 .mini{flex:0 0 auto;padding:6px 10px;border-radius:9px;background:var(--surface-2);
   color:var(--ink-2);font-size:12.5px}
 .mini.peligro{color:var(--neg);background:rgba(230,103,103,.12)}
@@ -672,7 +677,7 @@ var store = {
 /* Versión de la app. La subo cada vez que te paso un index.html nuevo y se ve
    abajo de todo en "Más". Si no coincide con la que te dije, lo que está
    corriendo en el teléfono es la copia vieja, no el archivo que subiste. */
-var APP_VER = '11 · refresco automático';
+var APP_VER = '12 · disponible y sin duplicados';
 
 var CFG = { url: store.get('g.url')||'', key: store.get('g.key')||'' };
 function guardarCfg(url,key){
@@ -985,6 +990,18 @@ function sugerir(){
 }
 
 /* ============================ guardar ================================= */
+/* El id lo inventa el teléfono ANTES de mandar, y se repite en cada reintento.
+   Es lo que hace que reintentar sea inofensivo: si la primera vez el servidor
+   llegó a escribir la fila pero contestó tarde, el segundo intento rebota
+   contra el mismo id en vez de duplicarte el gasto. Sin esto no hay traba del
+   lado de la app que alcance, porque el teléfono nunca se entera de cómo
+   terminó una consulta que dio timeout. */
+function nuevoIdLocal(){
+  var s='';
+  for(var i=0;i<12;i++) s+='0123456789abcdef'[Math.floor(Math.random()*16)];
+  return s;
+}
+
 function guardar(categoria){
   var monto=montoNum();
   if(!monto || monto<=0){
@@ -993,9 +1010,9 @@ function guardar(categoria){
     return;
   }
   var ingreso = ST.ingreso || esCategoriaDeIngreso(categoria);
-  var m={ op:'agregar', monto:monto, moneda:ST.moneda, fecha:ST.fecha, categoria:categoria,
-          detalle:document.getElementById('desc').value.trim(), medio:ST.medio,
-          esIngreso:ingreso, origen:'web' };
+  var m={ op:'agregar', id:nuevoIdLocal(), monto:monto, moneda:ST.moneda, fecha:ST.fecha,
+          categoria:categoria, detalle:document.getElementById('desc').value.trim(),
+          medio:ST.medio, esIngreso:ingreso, origen:'web' };
   var etiqueta=(ingreso?'+':'')+fmt(monto,ST.moneda)+' · '+categoria;
   limpiarCarga();
   if(navigator.vibrate) navigator.vibrate(16);
@@ -1026,18 +1043,51 @@ function pintarPendientes(){
   var n=cola().length;
   document.querySelector('.tab[data-p="mas"]').innerHTML='<span class="i">⚙</span>Más'+(n?' ('+n+')':'');
 }
+/* Dos cosas acá se hacían mal y entre las dos te triplicaron un gasto:
+   1. No había traba de reentrada. Como en la v11 empecé a vaciar la cola cada
+      vez que volvés a la app, y el iPhone dispara ese evento con facilidad,
+      dos llamadas superpuestas leían la misma cola y mandaban todo dos veces.
+   2. La cola se reescribía recién al final, con la foto vieja: si entraba un
+      movimiento nuevo mientras tanto, se perdía.
+   Ahora hay una sola pasada por vez y cada movimiento sale de la cola apenas
+   se confirma, releyendo la cola de verdad y no la copia. */
+var vaciando=null;
 function vaciarCola(){
+  if(vaciando) return vaciando;
   var c=cola();
   if(!c.length||!CFG.url) return Promise.resolve(0);
   var env=0;
-  return c.reduce(function(p,m){
-    return p.then(function(){ return api(m).then(function(r){ if(r&&r.ok) env++; }).catch(function(){}); });
+
+  // Lo que haya quedado encolado por una versión anterior no trae id. Se lo
+  // pongo ahora para poder sacarlo de la cola después.
+  var faltaba=false;
+  c.forEach(function(m){ if(!m.id){ m.id=nuevoIdLocal(); faltaba=true; } });
+  if(faltaba) store.set('g.cola',JSON.stringify(c));
+
+  function sacarDeLaCola(m){
+    var actual=cola(), i=-1;
+    for(var k=0;k<actual.length;k++) if(actual[k].id===m.id){ i=k; break; }
+    if(i<0) return;
+    actual.splice(i,1);
+    store.set('g.cola',JSON.stringify(actual));
+  }
+
+  vaciando = c.reduce(function(p,m){
+    return p.then(function(){
+      return api(m).then(function(r){
+        // ok o repetido dan lo mismo: en los dos casos el gasto ya está en la
+        // planilla, así que sale de la cola.
+        if(r&&r.ok){ env++; sacarDeLaCola(m); }
+      }).catch(function(){});
+    });
   },Promise.resolve()).then(function(){
-    store.set('g.cola',JSON.stringify(c.slice(env)));
     pintarPendientes();
     if(env) toast('Sincronicé '+env+' movimiento'+(env>1?'s':''));
+    vaciando=null;
     return env;
-  });
+  }).catch(function(){ vaciando=null; return 0; });
+
+  return vaciando;
 }
 window.addEventListener('online', vaciarCola);
 window.vaciarCola=vaciarCola;
@@ -1261,27 +1311,60 @@ function htmlMes(m, serie){
          '<div class="pie">'+pct+'% del mes</div></div>';
      }).join('')+'</div>';
 
-  var positivo = m.ahorro>=0;
+  /* Disponible, no ahorro. El ahorro mira para atrás (cobré menos gasté) e
+     ignora las cuotas que ya tenés con fecha puesta más adelante en el mes, así
+     que siempre da de más y no sirve para decidir si podés gastar hoy. */
+  var disponible = (m.disponible!=null ? m.disponible : (m.ingresos-m.gastos-proyectado));
+  var falta = m.faltaCargar || {total:0, items:[]};
+  var positivo = disponible>=0;
+
   h+='<div class="tiles">'+
-     '<div class="tile"><div class="lab">Ahorro</div>'+
-       '<div class="val '+(positivo?'mas':'menos')+'">'+fmtTile(m.ahorro)+'</div>'+
+     '<div class="tile"><div class="lab">Disponible</div>'+
+       '<div class="val '+(positivo?'mas':'menos')+'">'+fmtTile(disponible)+'</div>'+
        '<div class="pie">'+fmtCompacto(m.ingresos)+' de ingresos</div></div>'+
      '<div class="tile"><div class="lab">Proyectado</div>'+
        '<div class="val">'+fmtTile(proyectado)+'</div>'+
-       '<div class="pie">'+(proyectado?'falta pagar este mes':'nada cargado a futuro')+'</div></div>'+
+       '<div class="pie">'+(proyectado?'ya cargado, falta pagar':'nada cargado a futuro')+'</div></div>'+
      '</div>';
+
+  /* El disponible solo dice la verdad si lo que viene está cargado. Esto es lo
+     que todavía no cargaste, con el monto de la última vez: por eso el "≈". */
+  if(falta.total>0){
+    h+='<div class="aviso">≈ '+fmtCorto(falta.total)+' sin cargar todavía'+
+       '<span>'+esc(falta.items.map(function(i){ return i.categoria; }).join(' · '))+'</span></div>';
+  }
 
   if(serie.length>1) h+=htmlEvolucion(serie);
 
+  /* Dos lecturas distintas por persona y NO se suman: el saldo es la cuenta que
+     va y vuelve (préstamos), el gastado es plata que se fue y no vuelve. A un
+     hijo no le debés plata: gastás en él. Antes se mezclaban y por eso Noe
+     figuraba debiéndote 21 millones que en realidad era cuota alimentaria. */
   if(m.personas && m.personas.length){
-    h+='<div class="titulo enScroll">Saldos con personas</div>';
-    m.personas.forEach(function(p){
-      h+='<div class="persona"><span class="e">👤</span>'+
-         '<span class="txt"><span class="n">'+esc(p.nombre)+'</span>'+
-         '<span class="v">'+esc([p.vinculo,p.concepto].filter(Boolean).join(' · '))+'</span></span>'+
-         '<span class="s '+(p.saldo<0?'menos':'mas')+'">'+fmtCorto(p.saldo)+'</span></div>';
-    });
-    h+='<div class="nota">Negativo = plata que pusiste vos. No entra en el gasto del mes.</div>';
+    var conCuenta=m.personas.filter(function(p){ return p.saldo; });
+    var soloGasto=m.personas.filter(function(p){ return !p.saldo && p.gastado; });
+
+    if(conCuenta.length){
+      h+='<div class="titulo enScroll">Cuentas con personas</div>';
+      conCuenta.forEach(function(p){
+        h+='<div class="persona"><span class="e">🤝</span>'+
+           '<span class="txt"><span class="n">'+esc(p.nombre)+'</span>'+
+           '<span class="v">'+esc([p.vinculo,p.concepto].filter(Boolean).join(' · '))+'</span></span>'+
+           '<span class="s '+(p.saldo<0?'menos':'mas')+'">'+fmtCorto(p.saldo)+'</span></div>';
+      });
+      h+='<div class="nota">Negativo = plata que pusiste vos y todavía no volvió.</div>';
+    }
+
+    if(soloGasto.length){
+      h+='<div class="titulo enScroll">Gastado en</div>';
+      soloGasto.forEach(function(p){
+        h+='<div class="persona"><span class="e">👤</span>'+
+           '<span class="txt"><span class="n">'+esc(p.nombre)+'</span>'+
+           '<span class="v">'+esc([p.vinculo,p.concepto].filter(Boolean).join(' · '))+'</span></span>'+
+           '<span class="s">'+fmtCorto(p.gastado)+'</span></div>';
+      });
+      h+='<div class="nota">Histórico completo. No es una deuda: es plata que se fue.</div>';
+    }
   }
 
   /* El reparto por tipo ya está arriba en los tres recuadros: repetirlo acá

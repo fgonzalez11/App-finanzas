@@ -1,6 +1,6 @@
 /* Service worker mínimo: guarda la app para que abra sin señal.
    Nunca cachea la API — los datos siempre salen de la planilla. */
-var CACHE = 'gastos-v5';
+var CACHE = 'gastos-v6';
 
 /* OJO con esta lista. En GitHub Pages la app es UN SOLO archivo: resumen.js va
    incrustado adentro de index.html y NO existe suelto. Mientras estuvo pedido
