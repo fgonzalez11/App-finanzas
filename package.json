@@ -1,0 +1,23 @@
+{
+  "name": "finanzas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Registro de gastos de Fa: bot de Telegram + Google Sheet + PWA",
+  "scripts": {
+    "test": "node test/test_parser.js && node test/test_backend.js && node test/test_webhook.js && node test/test_cuotas.js && node test/test_resumen.js",
+    "test:parser": "node test/test_parser.js",
+    "test:backend": "node test/test_backend.js",
+    "test:webhook": "node test/test_webhook.js",
+    "test:cuotas": "node test/test_cuotas.js",
+    "test:resumen": "node test/test_resumen.js",
+    "test:app": "node test/test_app.js",
+    "shots": "node test/shots.js",
+    "shots:pdf": "node test/shots_pdf.js",
+    "server": "node test/server.js",
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^3.11.174",
+    "playwright": "^1.62.1"
+  }
+}

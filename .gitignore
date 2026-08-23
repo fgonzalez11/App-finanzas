@@ -1,0 +1,34 @@
+# ---------------------------------------------------------------------------
+# El repo es PÚBLICO (GitHub Pages con cuenta gratuita no publica desde repos
+# privados). El código no tiene secretos, pero los datos sí son privados.
+# Todo lo de acá abajo existe en la máquina y hace falta para correr las
+# pruebas, pero no se sube nunca.
+#
+# Antes de agregar un archivo nuevo, preguntate si tiene plata adentro.
+# ---------------------------------------------------------------------------
+
+# Cuatro años de movimientos reales: lo usan todas las pruebas de backend
+test/datos.json
+
+# Resúmenes de tarjeta y la planilla original
+pdf/
+excel/
+*.xlsm
+*.xlsx
+
+# Capturas con importes reales
+shots/
+
+# Node
+node_modules/
+
+# Generado por build.js (la raíz index.html/sw.js SÍ se sube: es lo que publica Pages)
+dist/
+
+# Config local de Claude Code (no del proyecto). Si algún día hay un
+# settings.json compartido para el equipo, ese sí se versiona.
+.claude/settings.local.json
+
+# Sistema
+.DS_Store
+Thumbs.db

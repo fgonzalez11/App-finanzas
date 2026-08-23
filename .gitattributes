@@ -1,0 +1,4 @@
+# Normaliza todo a LF en el repo, sin importar el core.autocrlf de cada máquina.
+# Sin esto, un checkout con autocrlf=true (como está en esta PC) puede inyectar
+# CRLF y mostrar index.html/sw.js como modificados cada vez que corre build.js.
+* text=auto eol=lf
