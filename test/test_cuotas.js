@@ -105,6 +105,76 @@ chequear('no queda ninguna suelta',
 chequear('el resumen vuelve a como estaba',
   Math.abs(resumenMes_().gastos - antes.gastos) < 0.01);
 
+console.log('\n=== RENOMBRAR EL DETALLE NO DUPLICA (pendiente #3) ===');
+const planR = crearPlanEnCuotas_({
+  fecha: HOY, tipo: '03. Pagos secundarios', categoria: 'Electronica',
+  montoTotal: 558738, n: 6, moneda: 'ARS', detalle: 'Nintendo Switch', origen: 'telegram'
+});
+const cuota3 = listarMovimientos_(300)
+  .filter(m => planDeNotas_(m.notas) === planR.plan)
+  .find(m => m.detalle === 'Nintendo Switch 3/6');
+chequear('encuentro la cuota 3/6 recién creada', !!cuota3);
+
+// Fa la renombra a mano, mucho antes de que llegue el resumen real.
+hojaMov_().getRange(buscarFila_(cuota3.id), COL.DETALLE).setValue('Switch de Bastian 3/6');
+
+// Llega el resumen de la tarjeta con el texto de siempre del banco (sin el
+// cambio de Fa: el banco no sabe que le pusiste otro nombre).
+olvidarCache_();
+const resImport = opImportar_({ filas: [
+  { fecha: cuota3.fecha, monto: 93123, detalle: 'Nintendo Switch 3/6', esIngreso: false }
+] });
+chequear('la reconoce como actualización, no como fila nueva',
+  resImport.actualizadas === 1 && resImport.importadas === 0,
+  JSON.stringify(resImport));
+
+const trasImportR = listarMovimientos_(300).filter(m => planDeNotas_(m.notas) === planR.plan);
+chequear('sigue habiendo 6 filas, no 7', trasImportR.length === 6, trasImportR.length);
+const renombrada = trasImportR.find(m => m.id === cuota3.id);
+chequear('el importe quedó con el del banco', renombrada && Math.abs(renombrada.importe + 93123) < 0.01,
+  renombrada && renombrada.importe);
+chequear('el Detalle que vos pusiste no se pisa', renombrada && renombrada.detalle === 'Switch de Bastian 3/6',
+  renombrada && renombrada.detalle);
+
+borrarPlan_(planR.plan);
+
+console.log('\n=== LO MISMO PERO CON CUOTAS PROYECTADAS DE UN RESUMEN ===');
+// Así es como realmente carga Fa las cuotas que le quedan por delante: no las
+// registra a mano por Telegram, las trae el propio resumen de la tarjeta
+// (pwa/resumen.js arma esta lista de "cuotas que vienen" con origen:
+// 'proyeccion') y opImportar_ las guarda de una. Nunca pasan por
+// crearPlanEnCuotas_.
+const filasAntesProy = hojaMov_().getLastRow();
+const impProy = opImportar_({ filas: [
+  { fecha: '2026-09-23', detalle: 'VANS ECOMMERCE 4/6', monto: 29999, origen: 'proyeccion', categoria: 'Ropa y calzado' },
+  { fecha: '2026-10-23', detalle: 'VANS ECOMMERCE 5/6', monto: 29999, origen: 'proyeccion', categoria: 'Ropa y calzado' },
+  { fecha: '2026-11-23', detalle: 'VANS ECOMMERCE 6/6', monto: 29999, origen: 'proyeccion', categoria: 'Ropa y calzado' }
+] });
+chequear('carga las 3 proyectadas', impProy.importadas === 3, JSON.stringify(impProy));
+
+const cuota5 = listarMovimientos_(300).find(m => m.detalle === 'VANS ECOMMERCE 5/6');
+chequear('la cuota 5/6 quedó marcada en Notas', cuota5 && /cuota:vans ecommerce\|5\/6/.test(cuota5.notas),
+  cuota5 && cuota5.notas);
+
+// Fa la renombra antes de que llegue octubre.
+hojaMov_().getRange(buscarFila_(cuota5.id), COL.DETALLE).setValue('Zapatillas Vans (Basti) 5/6');
+
+// Llega el resumen real de octubre con el texto de siempre del banco.
+olvidarCache_();
+const impReal = opImportar_({ filas: [
+  { fecha: '2026-10-23', detalle: 'VANS ECOMMERCE 5/6', monto: 29999, origen: 'import', categoria: 'Ropa y calzado' }
+] });
+chequear('la reconoce como actualización, no la duplica',
+  impReal.actualizadas === 1 && impReal.importadas === 0, JSON.stringify(impReal));
+chequear('sigue habiendo una sola fila 5/6',
+  listarMovimientos_(300).filter(m => /5\/6$/.test(m.detalle)).length === 1);
+
+// limpieza
+['VANS ECOMMERCE 4/6', 'Zapatillas Vans (Basti) 5/6', 'VANS ECOMMERCE 6/6'].forEach(det => {
+  var fila = listarMovimientos_(300).find(m => m.detalle === det);
+  if (fila) hojaMov_().deleteRow(buscarFila_(fila.id));
+});
+
 console.log('\n=== DE PUNTA A PUNTA POR TELEGRAM ===');
 setProp_('TELEGRAM_TOKEN', 'x:y');
 setProp_('TELEGRAM_CHAT_IDS', '12345');

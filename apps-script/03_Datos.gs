@@ -203,6 +203,13 @@ function planDeNotas_(notas) {
 /**
  * Crea las n filas de un plan en cuotas: una por mes, todas con el mismo
  * plan en Notas para poder borrarlas o recategorizarlas juntas.
+ *
+ * Cada fila también lleva una marca `cuota:<detalle original>|N/total` en
+ * Notas, calculada UNA sola vez acá con el detalle tal cual lo escribiste.
+ * Sirve para reconocer la cuota cuando llega el resumen real aunque después
+ * le cambies el Detalle a mano: si dependiéramos del Detalle actual, editarlo
+ * hacía que el resumen del mes siguiente no la reconociera y la duplicara.
+ *
  * m: { fecha, tipo, categoria, montoTotal, n, moneda, persona, detalle,
  *      medio, origen, esIngreso, notas }
  */
@@ -214,6 +221,7 @@ function crearPlanEnCuotas_(m) {
   var ahora = new Date();
   var base = m.fecha instanceof Date ? m.fecha : new Date(m.fecha);
   var detalleBase = String(m.detalle || m.categoria || '').trim();
+  var marcaBase = normalizar_(detalleBase);
 
   var filas = [], ids = [];
   for (var i = 0; i < n; i++) {
@@ -221,10 +229,11 @@ function crearPlanEnCuotas_(m) {
     var det = (detalleBase ? detalleBase + ' ' : '') + (i + 1) + '/' + n;
     var imp = aplicarSigno_(montos[i], m.tipo, tipos, m.esIngreso ? 1 : -1);
     var id = nuevoId_();
+    var marca = 'cuota:' + marcaBase + '|' + (i + 1) + '/' + n;
     ids.push(id);
     filas.push([id, f, m.tipo, m.categoria, imp, m.moneda || MONEDA_DEFAULT,
                 m.persona || '', det, m.medio || '', m.origen || 'web',
-                (plan + ' ' + (m.notas || '')).trim(), ahora, hashMov_(f, imp, det)]);
+                (plan + ' ' + marca + ' ' + (m.notas || '')).trim(), ahora, hashMov_(f, imp, det)]);
   }
 
   var h = hojaMov_();
@@ -431,6 +440,78 @@ function limpiarDuplicados() {
          .forEach(function (x) { h.deleteRow(x.fila); });
 
   ui.alert('Listo. Borré ' + aBorrar.length + ' movimientos repetidos.');
+}
+
+/**
+ * Migración histórica única (pendiente #4): las 20 filas de 2025 que tienen
+ * Categoria = "Bastian" son en realidad cinco compras en cuotas mal etiquetadas
+ * como categoría en vez de persona. Les pone la categoría real según el
+ * Detalle y Persona = Bastian; después saca "Bastian" de la hoja Categorias
+ * (ya sin uso) y lo agrega a Personas para que se vea con vínculo "Hijo".
+ *
+ * No toca doPost/doGet: se corre una sola vez a mano desde el desplegable de
+ * funciones del editor, no hace falta una implementación nueva.
+ */
+function migrarBastianAPersona() {
+  var ui = SpreadsheetApp.getUi();
+  var h = hojaMov_();
+  var n = h.getLastRow() - 1;
+  if (n < 1) { ui.alert('No hay movimientos.'); return; }
+
+  var vals = h.getRange(2, 1, n, TOTAL_COLS).getValues();
+  var REGLAS = [
+    { patron: /bici|temu/, categoria: 'Regalos' },
+    { patron: /nintendo|switch/, categoria: 'Electronica' },
+    { patron: /mimo|zapas/, categoria: 'Ropa y calzado' }
+  ];
+
+  var cambios = [], sinRegla = [];
+  vals.forEach(function (f, i) {
+    if (String(f[COL.CATEGORIA - 1]).trim() !== 'Bastian') return;
+    var detalle = normalizar_(f[COL.DETALLE - 1]);
+    var regla = null;
+    for (var r = 0; r < REGLAS.length; r++) {
+      if (REGLAS[r].patron.test(detalle)) { regla = REGLAS[r]; break; }
+    }
+    if (!regla) { sinRegla.push({ fila: i + 2, detalle: f[COL.DETALLE - 1] }); return; }
+    cambios.push({ fila: i + 2, categoria: regla.categoria, detalle: f[COL.DETALLE - 1] });
+  });
+
+  if (sinRegla.length) {
+    ui.alert('No toqué nada: hay ' + sinRegla.length + ' fila(s) en "Bastian" que no reconozco (' +
+      sinRegla.map(function (x) { return x.detalle || '(sin detalle) fila ' + x.fila; }).join(', ') +
+      '). Resolvelas a mano y volvé a correr esto.');
+    return;
+  }
+  if (!cambios.length) { ui.alert('No hay movimientos en la categoría Bastian. No hay nada para migrar.'); return; }
+
+  var resumen = cambios.map(function (x) { return '· fila ' + x.fila + ': ' + x.detalle + ' → ' + x.categoria; }).join('\n');
+  var r = ui.alert('Migrar Bastian a persona',
+    'Voy a cambiar estos ' + cambios.length + ' movimientos:\n\n' + resumen +
+    '\n\nA los ' + cambios.length + ' les pongo Persona = Bastian. Después saco "Bastian" de la ' +
+    'hoja Categorias y lo agrego a Personas con vínculo "Hijo". ¿Sigo?',
+    ui.ButtonSet.YES_NO);
+  if (r !== ui.Button.YES) return;
+
+  cambios.forEach(function (x) {
+    h.getRange(x.fila, COL.CATEGORIA).setValue(x.categoria);
+    h.getRange(x.fila, COL.PERSONA).setValue('Bastian');
+  });
+
+  // Saca "Bastian" de la hoja Categorias: después de este cambio queda sin uso.
+  var hc = ss_().getSheetByName(HOJA_CATEGORIAS);
+  var catVals = hc.getRange(2, 1, hc.getLastRow() - 1, 1).getValues();
+  for (var c = 0; c < catVals.length; c++) {
+    if (String(catVals[c][0]).trim() === 'Bastian') { hc.deleteRow(c + 2); break; }
+  }
+
+  // Agrega a Bastian en Personas, si todavía no está.
+  var hp = ss_().getSheetByName(HOJA_PERSONAS);
+  var perVals = hp.getLastRow() > 1 ? hp.getRange(2, 1, hp.getLastRow() - 1, 1).getValues() : [];
+  var yaExiste = perVals.some(function (f) { return String(f[0]).trim() === 'Bastian'; });
+  if (!yaExiste) hp.appendRow(['Bastian', 'Hijo', 'Gastos de Bastian', '']);
+
+  ui.alert('Listo. Migré ' + cambios.length + ' movimientos, saqué "Bastian" de Categorias y lo agregué a Personas.');
 }
 
 // -------------------------------------------------- depurar categorías

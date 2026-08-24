@@ -359,27 +359,58 @@ function partirCuotaDetalle_(detalle) {
   return { base: m[1].trim(), nro: parseInt(m[2], 10), total: parseInt(m[3], 10) };
 }
 
+/** Notas: "plan:ab12cd34 cuota:sommier|3/6 lo que sea" -> {base:"sommier", nro:3, total:6} */
+function marcaCuotaDeNotas_(notas) {
+  var m = String(notas || '').match(/cuota:(.*?)\|(\d{1,2})\/(\d{1,2})(?:\s|$)/);
+  if (!m) return null;
+  return { base: m[1], nro: parseInt(m[2], 10), total: parseInt(m[3], 10) };
+}
+
+function claveCuotaPorMarca_(base, nro, total, yyyyMM) {
+  return 'm:' + normalizar_(base) + '|' + nro + '/' + total + '|' + yyyyMM;
+}
+function claveCuotaPorDetalle_(detalle, yyyyMM) {
+  return 'd:' + normalizar_(detalle) + '|' + yyyyMM;
+}
+
+/** Arma la marca `cuota:base|N/total` que van a leer indiceCuotas_ y marcaCuotaDeNotas_. */
+function marcaCuota_(base, nro, total) {
+  return 'cuota:' + normalizar_(base) + '|' + nro + '/' + total;
+}
+
 /**
- * Índice de las cuotas ya cargadas: detalle normalizado + mes -> fila.
+ * Índice de las cuotas ya cargadas, para que una cuota proyectada y la misma
+ * cuota cuando llega en el resumen no se dupliquen. Lo que cargaste antes es
+ * un pronóstico; lo que trae el banco es el hecho, y el hecho pisa al
+ * pronóstico aunque los centavos no coincidan.
  *
- * Sirve para que una cuota proyectada y la misma cuota cuando llega en el
- * resumen no se dupliquen. Lo que cargaste antes es un pronóstico; lo que
- * trae el banco es el hecho, y el hecho pisa al pronóstico aunque los
- * centavos no coincidan.
+ * Si la fila tiene la marca `cuota:` en Notas (la ponen los planes armados
+ * desde que existe esto), la clave sale de ahí: aguanta que le cambies el
+ * Detalle a mano sin que se te duplique al mes siguiente. Si no la tiene
+ * (planes viejos, de antes de este cambio), cae al comportamiento de
+ * siempre: clave = detalle normalizado + mes. Ese respaldo solo funciona
+ * mientras no toques el Detalle de esas cuotas viejas.
  */
 function indiceCuotas_() {
   var h = hojaMov_();
   var n = h.getLastRow() - 1;
   var idx = {};
   if (n < 1) return idx;
-  var vals = h.getRange(2, COL.FECHA, n, COL.DETALLE - COL.FECHA + 1).getValues();
+  var vals = h.getRange(2, COL.FECHA, n, COL.NOTAS - COL.FECHA + 1).getValues();
   var o = COL.FECHA - 1;
   for (var i = 0; i < vals.length; i++) {
     var fe = vals[i][COL.FECHA - 1 - o];
     var det = vals[i][COL.DETALLE - 1 - o];
+    var notas = vals[i][COL.NOTAS - 1 - o];
     if (!(fe instanceof Date) || !det) continue;
     if (!partirCuotaDetalle_(det)) continue;
-    idx[normalizar_(det) + '|' + Utilities.formatDate(fe, ZONA, 'yyyy-MM')] = i + 2;
+    var yyyyMM = Utilities.formatDate(fe, ZONA, 'yyyy-MM');
+    var marca = marcaCuotaDeNotas_(notas);
+    if (marca) {
+      idx[claveCuotaPorMarca_(marca.base, marca.nro, marca.total, yyyyMM)] = i + 2;
+    } else {
+      idx[claveCuotaPorDetalle_(det, yyyyMM)] = i + 2;
+    }
   }
   return idx;
 }
@@ -421,16 +452,22 @@ function opImportar_(cuerpo) {
 
     // ¿Es una cuota que ya estaba proyectada? Entonces no es un duplicado:
     // es la confirmación. Le pisamos el importe con el del banco.
-    if (partirCuotaDetalle_(detalle)) {
-      var clave = normalizar_(detalle) + '|' + Utilities.formatDate(fecha, ZONA, 'yyyy-MM');
-      var filaExistente = idxCuotas[clave];
+    // Probamos primero por la marca en Notas (aguanta que le hayan cambiado
+    // el Detalle) y si no hay, por el Detalle de siempre.
+    var partesCuota = partirCuotaDetalle_(detalle);
+    if (partesCuota) {
+      var yyyyMM = Utilities.formatDate(fecha, ZONA, 'yyyy-MM');
+      var claveMarca = claveCuotaPorMarca_(partesCuota.base, partesCuota.nro, partesCuota.total, yyyyMM);
+      var claveDetalle = claveCuotaPorDetalle_(detalle, yyyyMM);
+      var filaExistente = idxCuotas[claveMarca] || idxCuotas[claveDetalle];
       if (filaExistente) {
         correcciones.push({ fila: filaExistente, importe: importe, fecha: fecha,
                             categoria: categoria, tipo: tipo, detalle: detalle });
         actualizadas++;
         return;
       }
-      idxCuotas[clave] = -1;   // reservada dentro de esta misma importación
+      idxCuotas[claveMarca] = -1;    // reservadas dentro de esta misma importación
+      idxCuotas[claveDetalle] = -1;
     }
 
     var hash = hashMov_(fecha, importe, detalle);
@@ -440,9 +477,19 @@ function opImportar_(cuerpo) {
     var persona = f.persona || '';
     if (!persona) personas.forEach(function (p) { if (p.tipo === tipo) persona = p.nombre; });
 
+    // Si es una cuota (venga como gasto de este mes o como proyección de una
+    // que todavía no llega), la marcamos ahora con el texto que trajo el
+    // banco. Es la única oportunidad: cuando llegue el mes real de esta
+    // cuota, la vamos a reconocer por esta marca aunque el Detalle ya no
+    // diga lo mismo (ver indiceCuotas_).
+    var notasFinal = f.notas || '';
+    if (partesCuota) {
+      notasFinal = (marcaCuota_(partesCuota.base, partesCuota.nro, partesCuota.total) + ' ' + notasFinal).trim();
+    }
+
     nuevas.push([nuevoId_(), fecha, tipo, categoria, importe, f.moneda || MONEDA_DEFAULT,
                  persona, detalle, f.medio || 'Crédito', f.origen || 'import',
-                 f.notas || '', ahora, hash]);
+                 notasFinal, ahora, hash]);
   });
 
   var lock = LockService.getScriptLock();

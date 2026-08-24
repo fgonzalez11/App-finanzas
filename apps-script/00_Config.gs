@@ -23,7 +23,7 @@
  * apuntando a la vieja). Lo que hay que hacer es
  * "Gestionar implementaciones → ✏️ → Versión: Nueva".
  */
-var VERSION = '11 · disponible y personas';
+var VERSION = '12 · cuotas sin duplicar al renombrar';
 
 var HOJA_MOVIMIENTOS  = 'Movimientos';
 var HOJA_CATEGORIAS   = 'Categorias';

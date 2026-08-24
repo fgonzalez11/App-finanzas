@@ -247,7 +247,7 @@ Cada una costó un bug en producción. Están en orden de cuánto dolieron.
 
 ## Pendientes acordados con Fa
 
-En orden. Los tres primeros están conversados y sus decisiones ya tomadas.
+En orden. Están conversados y sus decisiones ya tomadas.
 
 1. **Filtrar y buscar en la app.** Hoy la app se trae los últimos 80 movimientos, así
    que un buscador sobre eso miente apenas se busque algo de hace tres meses. Hay que
@@ -259,23 +259,30 @@ En orden. Los tres primeros están conversados y sus decisiones ya tomadas.
    7 de luz, 7 de gas, 8 de alarma y 6 gastos de entrada al departamento. Ojo con las
    palabras clave al partir: `Depto` tiene hoy `depto, alarma, sellado`.
 
-3. **Renombrar cuotas sin que se dupliquen.** Si Fa edita el Detalle de una cuota que
-   todavía no se cobró, el resumen del mes siguiente no la reconoce y carga una fila
-   nueva. Duplica incluso conservando el `2/3`, porque `indiceCuotas_` compara el texto
-   completo normalizado + el año-mes. La causa es que el Detalle hace de etiqueta
-   legible **y** de identidad técnica a la vez. Propuesta: guardar la identidad en
-   Notas al crear la cuota (`cuota:www.dexter.com.ar|2/3`) y matchear por ahí, dejando
-   el Detalle como texto libre; para las cuotas ya cargadas, sin esa marca, mantener el
-   comportamiento actual como respaldo. Solo afecta cuotas futuras.
+### Hechos
 
-4. **Migrar la categoría `Bastian` a persona.** 20 filas, todas de 2025, que son cinco
-   compras en cuotas. Decisiones ya tomadas por Fa:
-   - BICI (6 cuotas) → categoría **Regalos**
-   - Nintendo Switch (6 cuotas) + el juego suelto → categoría **Electronica**
-   - MIMO (6 cuotas) + Zapas → categoría **Ropa y calzado**
-   - Las 20 con persona = **Bastian**
+- **Renombrar cuotas sin que se dupliquen (2026-08-23).** Antes, si Fa editaba el
+  Detalle de una cuota que todavía no se había cobrado, el resumen del mes siguiente
+  no la reconocía (`indiceCuotas_` comparaba el texto completo normalizado + el
+  año-mes) y cargaba una fila nueva al lado. Esto pasaba tanto con las cuotas
+  registradas a mano por Telegram (`crearPlanEnCuotas_`) como —el caso real de
+  Fa— con las que trae de una el propio resumen de la tarjeta como "cuotas que
+  vienen" (`pwa/resumen.js` arma la proyección, la app la manda con
+  `origen:'proyeccion'`, `opImportar_` en `06_Api.gs` es quien las inserta). Ahora,
+  cualquier fila de cuota que se crea —por cualquiera de los dos caminos— guarda en
+  Notas una marca `cuota:<detalle original>|N/total` que no se toca nunca más;
+  `indiceCuotas_` la usa para reconocer la cuota cuando llega el resumen real,
+  aunque el Detalle ya diga otra cosa. Solo cae al Detalle actual como respaldo en
+  las cuotas cargadas antes de este cambio, que no tienen la marca (a esas no
+  conviene tocarles el Detalle hasta que terminen de cobrarse). Cubierto por dos
+  casos nuevos en `test/test_cuotas.js`, uno por cada camino.
 
-   Es histórico, va al final.
+- **Migrar la categoría `Bastian` a persona (2026-08-22).** Las 21 filas de 2025 (20
+  previstas + una compra de Temu que apareció después) quedaron con categoría real
+  (Regalos, Electronica o Ropa y calzado) y persona `Bastian`. La categoría `Bastian`
+  se sacó de la hoja Categorias; se agregó `Bastian` a Personas con vínculo "Hijo". La
+  función que lo hizo, `migrarBastianAPersona()` en `03_Datos.gs`, queda en el código
+  por si hace falta revisar el criterio, pero no tiene más uso.
 
 ---
 
@@ -296,6 +303,6 @@ preguntarse si tiene plata adentro.
 
 ## Estado
 
-- Backend: `11 · disponible y personas`
+- Backend: `12 · cuotas sin duplicar al renombrar`
 - App: `12 · disponible y sin duplicados`
 - Movimientos en la planilla: ~1030
