@@ -247,13 +247,23 @@ Cada una costó un bug en producción. Están en orden de cuánto dolieron.
 
 ## Pendientes acordados con Fa
 
-En orden. Están conversados y sus decisiones ya tomadas.
-
-1. **Filtrar y buscar en la app.** Hoy la app se trae los últimos 80 movimientos, así
-   que un buscador sobre eso miente apenas se busque algo de hace tres meses. Hay que
-   decidir: traer más movimientos o resolver la búsqueda del lado de Apps Script.
+No hay ninguno abierto ahora mismo. La lista de abajo es lo ya resuelto, para no
+perder el criterio con el que se decidió cada cosa.
 
 ### Hechos
+
+- **Filtrar y buscar en la app (2026-08-24).** "Últimos" trae los últimos 80
+  movimientos para que abrir la app sea rápido, pero un buscador sobre eso mentía
+  apenas se preguntaba por algo de más de un par de meses atrás. Se decidió NO tocar
+  el backend: `listarMovimientos_` ya lee la hoja ENTERA antes de recortar al límite
+  pedido (`Math.min(limite||50, n)`), así que pedir `limite:5000` trae la planilla
+  completa sin costo extra del lado de Apps Script. Ahora "Últimos" tiene un buscador
+  arriba de la lista; mientras está vacío no cambia nada, y en cuanto escribís algo la
+  app trae el historial completo **una sola vez** (se cachea en `BUSCAR.todos`) y
+  filtra ahí por Detalle, Categoría, Persona y Medio — el mismo patrón cliente que
+  "Repartir". El costo de traer todo se paga solo cuando de verdad buscás, no en el
+  uso diario. Si editás o borrás un resultado de la búsqueda, se invalida el caché y
+  se vuelve a traer (`refrescarBusqueda`) para no quedarte mirando datos viejos.
 
 - **Reasignar movimientos en bloque desde la app (2026-08-23).** La pantalla "Depurar
   categorías" solo sabía UNIR muchas en una; partir una en varias no tenía herramienta.
@@ -314,5 +324,5 @@ preguntarse si tiene plata adentro.
 ## Estado
 
 - Backend: `13 · repartir una categoría en varias`
-- App: `13 · repartir una categoría en varias`
+- App: `14 · buscar en todo el historial`
 - Movimientos en la planilla: ~1030

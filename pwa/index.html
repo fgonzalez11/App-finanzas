@@ -37,6 +37,10 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .titulo{padding:14px 16px 8px;font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;
   color:var(--muted);font-weight:600}
 .titulo.enScroll{padding-left:0;padding-right:0}
+.buscador{flex:0 0 auto;margin:0 16px 10px;background:var(--surface-2);border:1px solid transparent;
+  border-radius:999px;padding:9px 14px;color:var(--ink);font-size:15px;outline:none}
+.buscador::placeholder{color:var(--muted)}
+.buscador:focus{border-color:var(--accent)}
 
 /* ---------- cargar ---------- */
 .monto{flex:0 0 auto;padding:14px 16px 8px;text-align:center}
@@ -250,6 +254,8 @@ table.prev th{color:var(--muted);font-weight:600}
 
   <section class="pantalla" id="p-ultimos">
     <div class="titulo">Últimos movimientos</div>
+    <input class="buscador" id="buscarMov" placeholder="🔍 Buscar en todo el historial…"
+      autocomplete="off" autocorrect="off" autocapitalize="off">
     <div class="scroll" id="lista"></div>
   </section>
 
@@ -293,7 +299,7 @@ var store = {
 /* Versión de la app. La subo cada vez que te paso un index.html nuevo y se ve
    abajo de todo en "Más". Si no coincide con la que te dije, lo que está
    corriendo en el teléfono es la copia vieja, no el archivo que subiste. */
-var APP_VER = '13 · repartir una categoría en varias';
+var APP_VER = '14 · buscar en todo el historial';
 
 var CFG = { url: store.get('g.url')||'', key: store.get('g.key')||'' };
 function guardarCfg(url,key){
@@ -376,7 +382,7 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){
 var ST = {
   monto:'', fecha:hoyISO(), medio:'', moneda:'ARS', ingreso:false, verTodas:false,
   cats:[], tipos:[], personas:[], medios:[], planilla:'',
-  movimientos:[], resumen:null, serie:[]
+  movimientos:[], ultimos:[], resumen:null, serie:[]
 };
 var TOP_CATS = 15;
 
@@ -709,51 +715,60 @@ window.addEventListener('online', vaciarCola);
 window.vaciarCola=vaciarCola;
 
 /* ============================ últimos ================================= */
+function pintarLista(movimientos, silencioso){
+  var cont=document.getElementById('lista');
+  ST.movimientos=movimientos;        // lo que está en pantalla ahora: de acá sale editar()
+  if(!movimientos.length){
+    cont.innerHTML='<div class="vacio">'+
+      (BUSCAR.texto?'Nada con ese texto.':'Todavía no hay movimientos.')+'</div>';
+    return;
+  }
+  var hoy=hoyISO();
+  // Lo que ya pasó va primero; las cuotas que dejaste cargadas a futuro,
+  // al final y atenuadas.
+  var pasados=movimientos.filter(function(m){ return m.fecha<=hoy; });
+  var futuros=movimientos.filter(function(m){ return m.fecha>hoy; });
+
+  function bloque(lista, futuro){
+    var h='', dia='';
+    lista.forEach(function(m){
+      if(m.fecha!==dia){
+        dia=m.fecha;
+        h+='<div class="dia">'+(futuro?isoADia(m.fecha):etiquetaFecha(m.fecha))+'</div>';
+      }
+      var mas=m.importe>0;
+      h+='<div class="item" data-id="'+m.id+'"'+(futuro?' style="opacity:.7"':'')+'>'+
+        '<span class="e">'+emoji(m.categoria)+'</span>'+
+        '<span class="txt"><span class="t1">'+(esc(m.detalle)||esc(m.categoria))+'</span>'+
+        '<span class="t2">'+esc(m.categoria)+
+          (m.persona?' · 👤 '+esc(m.persona):'')+
+          (m.medio?' · '+esc(m.medio):'')+
+          (m.origen&&m.origen.indexOf('telegram')===0?' · 📩':'')+
+          (m.origen==='import'?' · 💳':'')+'</span></span>'+
+        '<span class="m'+(mas?' mas':'')+'">'+(mas?'+':'')+fmt(Math.abs(m.importe),m.moneda)+
+        '</span></div>';
+    });
+    return h;
+  }
+
+  var html=bloque(pasados,false);
+  if(futuros.length){
+    html+='<div class="dia" style="color:var(--accent);padding-top:22px">'+
+      'Proyectado · '+futuros.length+'</div>'+bloque(futuros,true);
+  }
+  var y=cont.scrollTop;
+  cont.innerHTML=html;
+  if(silencioso) cont.scrollTop=y;    // refresco de fondo: no te muevo la lista
+}
+
 function cargarLista(silencioso){
+  if(BUSCAR.texto) return refrescarBusqueda();
   var cont=document.getElementById('lista');
   if(!silencioso) cont.innerHTML='<div class="vacio">Cargando…</div>';
   return api({op:'listar',limite:80}).then(function(r){
     if(!r||!r.ok) throw new Error('error');
-    ST.movimientos=r.movimientos;
-    if(!r.movimientos.length){
-      cont.innerHTML='<div class="vacio">Todavía no hay movimientos.</div>'; return;
-    }
-    var hoy=hoyISO();
-    // Lo que ya pasó va primero; las cuotas que dejaste cargadas a futuro,
-    // al final y atenuadas.
-    var pasados=r.movimientos.filter(function(m){ return m.fecha<=hoy; });
-    var futuros=r.movimientos.filter(function(m){ return m.fecha>hoy; });
-
-    function bloque(lista, futuro){
-      var h='', dia='';
-      lista.forEach(function(m){
-        if(m.fecha!==dia){
-          dia=m.fecha;
-          h+='<div class="dia">'+(futuro?isoADia(m.fecha):etiquetaFecha(m.fecha))+'</div>';
-        }
-        var mas=m.importe>0;
-        h+='<div class="item" data-id="'+m.id+'"'+(futuro?' style="opacity:.7"':'')+'>'+
-          '<span class="e">'+emoji(m.categoria)+'</span>'+
-          '<span class="txt"><span class="t1">'+(esc(m.detalle)||esc(m.categoria))+'</span>'+
-          '<span class="t2">'+esc(m.categoria)+
-            (m.persona?' · 👤 '+esc(m.persona):'')+
-            (m.medio?' · '+esc(m.medio):'')+
-            (m.origen&&m.origen.indexOf('telegram')===0?' · 📩':'')+
-            (m.origen==='import'?' · 💳':'')+'</span></span>'+
-          '<span class="m'+(mas?' mas':'')+'">'+(mas?'+':'')+fmt(Math.abs(m.importe),m.moneda)+
-          '</span></div>';
-      });
-      return h;
-    }
-
-    var html=bloque(pasados,false);
-    if(futuros.length){
-      html+='<div class="dia" style="color:var(--accent);padding-top:22px">'+
-        'Proyectado · '+futuros.length+'</div>'+bloque(futuros,true);
-    }
-    var y=cont.scrollTop;
-    cont.innerHTML=html;
-    if(silencioso) cont.scrollTop=y;    // refresco de fondo: no te muevo la lista
+    ST.ultimos=r.movimientos;
+    pintarLista(r.movimientos, silencioso);
   }).catch(function(){
     // Si fue un refresco de fondo y no hubo señal, mejor dejarte lo que ya
     // tenías en pantalla que reemplazarlo por un cartel de error.
@@ -761,6 +776,48 @@ function cargarLista(silencioso){
     cont.innerHTML='<div class="vacio">No pude conectarme.<br>Revisá la configuración en <b>Más</b>.</div>';
   });
 }
+
+/* --------------------- buscar en todo el historial ---------------------
+   "Últimos" trae 80 para que abrir la app sea rápido. Buscar sobre eso miente
+   apenas preguntás por algo de hace unos meses: la respuesta es "no está"
+   aunque sí esté. listarMovimientos_ ya lee la hoja ENTERA en el backend antes
+   de recortar al límite pedido, así que traer todo no cuesta nada más ahí; lo
+   único que cambia es lo que viaja por la red, y eso solo pasa cuando de
+   verdad estás buscando, no en el uso de todos los días. */
+var BUSCAR={ texto:'', todos:null, cargando:null };
+
+function filtrarBuscar(todos){
+  var t=BUSCAR.texto;
+  return todos.filter(function(m){
+    return (m.detalle&&m.detalle.toLowerCase().indexOf(t)>=0)||
+      (m.categoria&&m.categoria.toLowerCase().indexOf(t)>=0)||
+      (m.persona&&m.persona.toLowerCase().indexOf(t)>=0)||
+      (m.medio&&m.medio.toLowerCase().indexOf(t)>=0);
+  });
+}
+
+function refrescarBusqueda(){
+  var cont=document.getElementById('lista');
+  cont.innerHTML='<div class="vacio">Buscando en todo el historial…</div>';
+  BUSCAR.cargando=api({op:'listar',limite:5000},30000).then(function(r){
+    BUSCAR.cargando=null;
+    if(!r||!r.ok) throw new Error('error');
+    BUSCAR.todos=r.movimientos;
+    if(BUSCAR.texto) pintarLista(filtrarBuscar(BUSCAR.todos));
+  }).catch(function(){
+    BUSCAR.cargando=null;
+    cont.innerHTML='<div class="vacio">No pude traer el historial.<br>Probá de nuevo.</div>';
+  });
+  return BUSCAR.cargando;
+}
+
+window.buscarMovs=function(v){
+  BUSCAR.texto=(v||'').trim().toLowerCase();
+  if(!BUSCAR.texto){ pintarLista(ST.ultimos||[]); return; }
+  if(BUSCAR.todos){ pintarLista(filtrarBuscar(BUSCAR.todos)); return; }
+  if(!BUSCAR.cargando) refrescarBusqueda();
+};
+document.getElementById('buscarMov').addEventListener('input',function(){ buscarMovs(this.value); });
 
 /* ---------------------- ponerse al día solo ---------------------------- */
 /* Si cargaste algo por Telegram con la app abierta atrás, al volver a ella la
