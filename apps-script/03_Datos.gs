@@ -551,6 +551,81 @@ function usoDeCategorias_() {
 }
 
 /**
+ * Todos los movimientos de una categoría, sin el límite de 60/80 que tiene
+ * "Últimos". Hace falta para poder repartirla: si solo trajera los recientes,
+ * los gastos viejos de una categoría con años de historia (como Depto) ni
+ * aparecerían para elegir.
+ */
+function movimientosDeCategoria_(nombre) {
+  var h = hojaMov_();
+  var n = h.getLastRow() - 1;
+  if (n < 1) return [];
+  return h.getRange(2, 1, n, TOTAL_COLS).getValues()
+    .map(function (f, i) {
+      var o = filaAObjeto_(f);
+      var c = f[COL.CREADO - 1];
+      o._creado = (c instanceof Date) ? c.getTime() : 0;
+      o._i = i;
+      return o;
+    })
+    .filter(function (o) { return paraBuscar_(o.categoria) === paraBuscar_(nombre); })
+    .sort(function (a, b) {
+      if (a.fecha !== b.fecha) return a.fecha < b.fecha ? 1 : -1;
+      if (a._creado !== b._creado) return b._creado - a._creado;
+      return b._i - a._i;
+    })
+    .map(function (o) { delete o._creado; delete o._i; return o; });
+}
+
+/**
+ * Mueve una lista puntual de movimientos (por ID) a otra categoría. Es la
+ * contraparte de unificarCategorias_: esa mueve TODOS los de una categoría de
+ * una, esta mueve solo los que elegiste — sirve para partir una categoría
+ * en varias (ej. "Depto" son en realidad alquiler + luz + gas + alarma).
+ *
+ * A propósito no toca las palabras clave del catálogo: acá vos elegiste
+ * movimiento por movimiento, no hay un criterio único que aprender.
+ */
+function reasignarMovimientos_(ids, destino) {
+  ids = (ids || []).map(String).filter(function (x) { return x; });
+  if (!ids.length) return { ok: false, error: 'no elegiste ningún movimiento' };
+
+  var cats = leerCategorias_();
+  var catDestino = null;
+  cats.forEach(function (c) { if (paraBuscar_(c.nombre) === paraBuscar_(destino)) catDestino = c; });
+  if (!catDestino) return { ok: false, error: 'no encuentro la categoría destino' };
+
+  var h = hojaMov_();
+  var n = h.getLastRow() - 1;
+  if (n < 1) return { ok: true, movimientos: 0, destino: catDestino.nombre };
+
+  var buscados = {};
+  ids.forEach(function (id) { buscados[id] = true; });
+
+  var idCol = h.getRange(2, COL.ID, n, 1).getValues();
+  var catCol = h.getRange(2, COL.CATEGORIA, n, 1).getValues();
+  var tipoCol = h.getRange(2, COL.TIPO, n, 1).getValues();
+  var impCol = h.getRange(2, COL.IMPORTE, n, 1).getValues();
+  var tipos = leerTipos_();
+  var tocados = 0;
+
+  for (var i = 0; i < idCol.length; i++) {
+    if (!buscados[String(idCol[i][0])]) continue;
+    catCol[i][0] = catDestino.nombre;
+    tipoCol[i][0] = catDestino.tipo || TIPO_OTROS;
+    impCol[i][0] = aplicarSigno_(impCol[i][0], tipoCol[i][0], tipos, impCol[i][0]);
+    tocados++;
+  }
+  if (tocados) {
+    h.getRange(2, COL.CATEGORIA, n, 1).setValues(catCol);
+    h.getRange(2, COL.TIPO, n, 1).setValues(tipoCol);
+    h.getRange(2, COL.IMPORTE, n, 1).setValues(impCol);
+  }
+  olvidarCache_();
+  return { ok: true, movimientos: tocados, destino: catDestino.nombre };
+}
+
+/**
  * Pasa todos los movimientos de una categoría a otra, se lleva sus palabras
  * clave y borra la primera del catálogo.
  *

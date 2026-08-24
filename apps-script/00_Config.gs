@@ -23,7 +23,7 @@
  * apuntando a la vieja). Lo que hay que hacer es
  * "Gestionar implementaciones → ✏️ → Versión: Nueva".
  */
-var VERSION = '12 · cuotas sin duplicar al renombrar';
+var VERSION = '13 · repartir una categoría en varias';
 
 var HOJA_MOVIMIENTOS  = 'Movimientos';
 var HOJA_CATEGORIAS   = 'Categorias';

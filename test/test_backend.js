@@ -276,6 +276,41 @@ console.log('\n=== DEPURAR CATEGORÍAS ===');
   chequear('avisa si le pedís borrar una que no existe', borrarCategoria_('Kiosco').ok === false);
 }
 
+console.log('\n=== REPARTIR UNA CATEGORÍA EN VARIAS (pendiente #2) ===');
+{
+  // el caso real: "Depto" mezcla alquiler (sin detalle) con luz, gas y alarma.
+  // Acá lo simulamos chico: 4 movimientos de "Depto", 2 de luz y 2 sin marca.
+  const ids = [
+    opAgregar_({ monto: 1000, categoria: 'Depto', detalle: 'luz depto', fecha: '2026-08-01' }).id,
+    opAgregar_({ monto: 1200, categoria: 'Depto', detalle: 'luz depto', fecha: '2026-08-02' }).id,
+    opAgregar_({ monto: 300000, categoria: 'Depto', detalle: '', fecha: '2026-08-03' }).id,
+    opAgregar_({ monto: 300000, categoria: 'Depto', detalle: '', fecha: '2026-08-04' }).id
+  ];
+  olvidarCache_();
+
+  const todos = movimientosDeCategoria_('Depto');
+  chequear('trae los 4, no solo los últimos 80', ids.every(id => todos.some(m => m.id === id)),
+    `${todos.length} en total`);
+
+  const deLuz = ids.slice(0, 2);
+  const mov = reasignarMovimientos_(deLuz, 'Luz');
+  chequear('mueve solo los 2 elegidos', mov.ok && mov.movimientos === 2 && mov.destino === 'Luz',
+    JSON.stringify(mov));
+
+  const despuesDepto = movimientosDeCategoria_('Depto').map(m => m.id);
+  chequear('los otros 2 se quedaron en Depto, los 2 movidos ya no están',
+    ids.slice(2).every(id => despuesDepto.indexOf(id) >= 0) && deLuz.every(id => despuesDepto.indexOf(id) < 0));
+  const movidos = listarMovimientos_(400).filter(m => deLuz.indexOf(m.id) >= 0);
+  chequear('los movidos ahora son Luz, con su tipo y signo', movidos.length === 2 &&
+    movidos.every(m => m.categoria === 'Luz' && m.tipo === '02. Pagos esenciales' && m.importe < 0),
+    movidos.map(m => `${m.categoria}/${m.tipo}/${m.importe}`).join(' · '));
+
+  chequear('avisa si el destino no existe', reasignarMovimientos_(deLuz, 'Categoría Inventada').ok === false);
+  chequear('avisa si no mandaste ningún id', reasignarMovimientos_([], 'Luz').ok === false);
+
+  ids.forEach(id => borrarMovimiento_(id));
+}
+
 console.log('\n=== LA PLANILLA ES DE FA: PUEDE ORDENARLA COMO QUIERA ===');
 {
   // Fa filtró la hoja para revisar y de paso la ordenó por CreadoEn, más nuevo

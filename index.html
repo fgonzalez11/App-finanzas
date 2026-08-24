@@ -677,7 +677,7 @@ var store = {
 /* Versión de la app. La subo cada vez que te paso un index.html nuevo y se ve
    abajo de todo en "Más". Si no coincide con la que te dije, lo que está
    corriendo en el teléfono es la copia vieja, no el archivo que subiste. */
-var APP_VER = '12 · disponible y sin duplicados';
+var APP_VER = '13 · repartir una categoría en varias';
 
 var CFG = { url: store.get('g.url')||'', key: store.get('g.key')||'' };
 function guardarCfg(url,key){
@@ -1579,7 +1579,9 @@ function filaCat(c){
         '<option value="">Unificar con…</option>'+destinos+'</select>'
       : '')+
     '</span>'+
-    (c.veces?'':'<button class="mini peligro" onclick="borrarCat('+i+')">Borrar</button>')+
+    (c.veces
+      ? '<button class="mini" onclick="pantallaRepartir('+i+')">Repartir…</button>'
+      : '<button class="mini peligro" onclick="borrarCat('+i+')">Borrar</button>')+
     '</div>';
 }
 
@@ -1620,6 +1622,105 @@ window.borrarCat=function(i){
   });
 };
 window.recargarUsoCats=recargarUsoCats;
+
+/* ------------------------- repartir en varias -------------------------- */
+/* "Unificar" mueve TODA una categoría a otra. Esto es al revés: partir una
+   categoría, moviendo solo los movimientos que elijas (ej. de los 72 de
+   "Depto", los 7 que son de luz) a otra categoría existente. Trae la
+   categoría COMPLETA —no los últimos 80— porque si no los gastos viejos ni
+   aparecerían para elegir. */
+var REP=null;
+
+window.pantallaRepartir=function(i){
+  var c=USO[i]; if(!c) return;
+  REP={ cat:c.nombre, movs:null, filtro:'', sel:{} };
+  abrirSheet('<h3>Repartir "'+esc(c.nombre)+'"</h3>'+
+    '<div class="nota">Tildá los que querés pasar a otra categoría. Los que no toques '+
+    'se quedan en "'+esc(c.nombre)+'".</div>'+
+    '<div class="campo"><input id="repBuscar" placeholder="Buscar en el detalle…" '+
+    'oninput="filtrarRepartir(this.value)"></div>'+
+    '<div id="repLista"><div class="nota">Trayendo los movimientos…</div></div>'+
+    '<div id="repBarra"></div>'+
+    '<button class="btn sec" style="margin-top:14px" onclick="pantallaCategorias()">‹ Volver a categorías</button>');
+  api({op:'movimientosDeCategoria', nombre:c.nombre},30000).then(function(r){
+    if(!r||!r.ok) throw new Error((r&&r.error)||'sin respuesta');
+    if(REP.cat!==c.nombre) return;      // se fue de la pantalla mientras esperaba
+    REP.movs=r.movimientos||[];
+    pintarRepartir();
+  }).catch(function(e){
+    var l=document.getElementById('repLista');
+    if(l) l.innerHTML='<div class="err">No pude traerlos ('+esc(e.message)+').</div>';
+  });
+};
+
+window.filtrarRepartir=function(v){
+  REP.filtro=(v||'').trim().toLowerCase();
+  pintarRepartir(true);
+};
+
+function pintarRepartir(mantenerFoco){
+  var lista=document.getElementById('repLista'); if(!lista) return;
+  if(!REP.movs){ lista.innerHTML='<div class="nota">Trayendo los movimientos…</div>'; return; }
+
+  var vistos=REP.movs.filter(function(m){
+    return !REP.filtro || (m.detalle||'').toLowerCase().indexOf(REP.filtro)>=0;
+  });
+  lista.innerHTML=!vistos.length
+    ? '<div class="nota">No hay movimientos'+(REP.filtro?' con ese texto en el detalle':'')+'.</div>'
+    : vistos.map(function(m){
+        return '<div class="item" style="align-items:flex-start">'+
+          '<input type="checkbox" '+(REP.sel[m.id]?'checked':'')+' style="width:auto;margin-top:4px" '+
+          'onchange="tildarRepartir(\''+m.id+'\',this.checked)">'+
+          '<span class="txt"><span class="t1">'+esc(m.detalle||'(sin detalle)')+'</span>'+
+          '<span class="t2">'+isoADia(m.fecha)+'</span></span>'+
+          '<span class="m">'+fmtCorto(m.importe,m.moneda)+'</span></div>';
+      }).join('');
+  if(mantenerFoco){
+    var b=document.getElementById('repBuscar');
+    if(b){ b.focus(); b.value=REP.filtro; b.setSelectionRange(b.value.length,b.value.length); }
+  }
+  pintarBarraRepartir();
+}
+
+window.tildarRepartir=function(id,v){
+  if(v) REP.sel[id]=true; else delete REP.sel[id];
+  pintarBarraRepartir();
+};
+
+function pintarBarraRepartir(){
+  var barra=document.getElementById('repBarra'); if(!barra) return;
+  var n=Object.keys(REP.sel).length;
+  if(!n){ barra.innerHTML=''; return; }
+  var destinos=catsAlfabeticas().filter(function(c){ return c.nombre!==REP.cat; })
+    .map(function(c){ return '<option>'+esc(c.nombre)+'</option>'; }).join('');
+  barra.innerHTML='<div class="campo" style="margin-top:14px">'+
+    '<label>Mover '+n+(n===1?' movimiento':' movimientos')+' a…</label>'+
+    '<select id="repDestino"><option value="">— elegí —</option>'+destinos+'</select></div>'+
+    '<button class="btn" onclick="moverRepartir()">Mover '+n+(n===1?' movimiento':' movimientos')+'</button>';
+}
+
+window.moverRepartir=function(){
+  var sel=document.getElementById('repDestino');
+  var destino=sel?sel.value:'';
+  var ids=Object.keys(REP.sel);
+  if(!destino||!ids.length) return;
+  if(!confirm('Pasar '+ids.length+(ids.length===1?' movimiento':' movimientos')+' de "'+
+    REP.cat+'" a "'+destino+'".')) return;
+
+  var lista=document.getElementById('repLista');
+  if(lista) lista.innerHTML='<div class="nota">Moviendo…</div>';
+  apiPost({op:'reasignar', ids:ids, destino:destino}).then(function(r){
+    if(!r||!r.ok) throw new Error((r&&r.error)||'no se pudo');
+    toast(r.movimientos+(r.movimientos===1?' movimiento pasado a ':' movimientos pasados a ')+r.destino);
+    REP.movs=REP.movs.filter(function(m){ return !REP.sel[m.id]; });
+    REP.sel={};
+    cargarConfigRemota();
+    pintarRepartir();
+  }).catch(function(e){
+    var l=document.getElementById('repLista');
+    if(l) l.innerHTML='<div class="err">No pude mover ('+esc(e.message)+').</div>';
+  });
+};
 
 /* ============================ importar ================================ */
 window.pantallaImportar=function(){

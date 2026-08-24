@@ -98,6 +98,7 @@ function doPost(e) {
     if (cuerpo.op === 'nuevaCategoria') return json_(opNuevaCategoria_(cuerpo));
     if (cuerpo.op === 'unificar') return json_(unificarCategorias_(cuerpo.origen, cuerpo.destino));
     if (cuerpo.op === 'borrarCategoria') return json_(borrarCategoria_(cuerpo.nombre));
+    if (cuerpo.op === 'reasignar') return json_(reasignarMovimientos_(cuerpo.ids, cuerpo.destino));
     return json_({ ok: false, error: 'operación desconocida' });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
@@ -118,6 +119,7 @@ function doGet(e) {
       case 'config':  return json_(opConfig_(), cb);
       case 'nuevaCategoria': return json_(opNuevaCategoria_(p), cb);
       case 'usoCategorias': return json_(opUsoCategorias_(), cb);
+      case 'movimientosDeCategoria': return json_({ ok: true, movimientos: movimientosDeCategoria_(p.nombre) }, cb);
       case 'unificar': return json_(unificarCategorias_(p.origen, p.destino), cb);
       case 'borrarCategoria': return json_(borrarCategoria_(p.nombre), cb);
       case 'listar':  return json_({ ok: true, movimientos: listarMovimientos_(Number(p.limite) || 60) }, cb);

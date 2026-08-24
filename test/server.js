@@ -23,6 +23,7 @@ function despachar(p) {
     case 'usoCategorias':   return opUsoCategorias_();
     case 'unificar':        return unificarCategorias_(p.origen, p.destino);
     case 'borrarCategoria': return borrarCategoria_(p.nombre);
+    case 'movimientosDeCategoria': return { ok: true, movimientos: movimientosDeCategoria_(p.nombre) };
     default:        return { ok: false, error: 'op desconocida' };
   }
 }
@@ -51,6 +52,7 @@ http.createServer((req, res) => {
       else if (j.op === 'nuevaCategoria') out = opNuevaCategoria_(j);
       else if (j.op === 'unificar') out = unificarCategorias_(j.origen, j.destino);
       else if (j.op === 'borrarCategoria') out = borrarCategoria_(j.nombre);
+      else if (j.op === 'reasignar') out = reasignarMovimientos_(j.ids, j.destino);
       else out = opAgregar_(j);
       } catch (e) { out = { ok: false, error: String(e) }; }
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });

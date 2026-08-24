@@ -253,13 +253,23 @@ En orden. Están conversados y sus decisiones ya tomadas.
    que un buscador sobre eso miente apenas se busque algo de hace tres meses. Hay que
    decidir: traer más movimientos o resolver la búsqueda del lado de Apps Script.
 
-2. **Reasignar movimientos en bloque desde la app.** La pantalla "Depurar categorías"
-   solo sabe UNIR muchas en una; partir una en varias no tiene herramienta. Caso real:
-   la categoría `Depto` tiene 72 movimientos que son 44 de alquiler (sin detalle),
-   7 de luz, 7 de gas, 8 de alarma y 6 gastos de entrada al departamento. Ojo con las
-   palabras clave al partir: `Depto` tiene hoy `depto, alarma, sellado`.
-
 ### Hechos
+
+- **Reasignar movimientos en bloque desde la app (2026-08-23).** La pantalla "Depurar
+  categorías" solo sabía UNIR muchas en una; partir una en varias no tenía herramienta.
+  Caso real: la categoría `Depto` tiene 72 movimientos que son 44 de alquiler (sin
+  detalle), 7 de luz, 7 de gas, 8 de alarma y 6 gastos de entrada al departamento.
+  Ahora cada categoría "en uso" tiene un botón **Repartir…** que abre la lista
+  COMPLETA de sus movimientos (no los últimos 80 — `movimientosDeCategoria_` nueva en
+  `03_Datos.gs`, sin el límite de `listarMovimientos_`), con un buscador que filtra por
+  texto en el Detalle y una casilla por movimiento. Se tildan a mano —no hay partido
+  automático por palabra clave, porque las palabras clave del catálogo sirven para
+  sugerir categoría al cargar, no para partir una ya cargada (`Depto` tiene hoy
+  `depto, alarma, sellado`, que mezclarían mal)— y "Mover N movimientos a…" los pasa en
+  bloque a una categoría existente (`reasignarMovimientos_` nueva, la contraparte de
+  `unificarCategorias_` pero por lista de IDs en vez de por categoría entera). Cubierto
+  en `test/test_backend.js`. Sigue pendiente que Fa se siente a partir `Depto` de
+  verdad con la herramienta.
 
 - **Renombrar cuotas sin que se dupliquen (2026-08-23).** Antes, si Fa editaba el
   Detalle de una cuota que todavía no se había cobrado, el resumen del mes siguiente
@@ -303,6 +313,6 @@ preguntarse si tiene plata adentro.
 
 ## Estado
 
-- Backend: `12 · cuotas sin duplicar al renombrar`
-- App: `12 · disponible y sin duplicados`
+- Backend: `13 · repartir una categoría en varias`
+- App: `13 · repartir una categoría en varias`
 - Movimientos en la planilla: ~1030
