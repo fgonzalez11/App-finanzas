@@ -132,8 +132,8 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
 /* ahorro mes a mes: polaridad, azul arriba / rojo abajo del cero */
 .evo{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
-  padding:12px 12px 8px;margin-bottom:4px}
-.evoGraf{display:flex;align-items:stretch;gap:3px;height:112px;position:relative}
+  padding:9px 12px 6px;margin-bottom:4px}
+.evoGraf{display:flex;align-items:stretch;gap:3px;position:relative}
 .evoMes{flex:1;display:flex;flex-direction:column;min-width:0}
 .evoArriba,.evoAbajo{flex:1;display:flex}
 .evoArriba{align-items:flex-end}
@@ -144,7 +144,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .evoEje{flex:1;text-align:center;font-size:9.5px;color:var(--muted);min-width:0;overflow:hidden}
 .evoEje.hoy{color:var(--accent);font-weight:700}
 .evoPie{display:flex;justify-content:space-between;gap:6px;font-size:11px;color:var(--muted);
-  margin-top:7px;padding-top:7px;border-top:1px solid var(--line)}
+  margin-top:5px;padding-top:5px;border-top:1px solid var(--line)}
 .evoPie span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 
 .persona{display:flex;align-items:center;gap:11px;padding:12px;background:var(--surface);
@@ -209,6 +209,10 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   border:1px solid rgba(230,103,103,.35);border-radius:12px;padding:9px 12px;margin-top:8px;
   font-size:13px;color:var(--ink-2)}
 .aviso span{font-size:11.5px;color:var(--muted)}
+.aviso .pends{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.aviso .pend{display:inline-flex;align-items:center;gap:5px;padding:7px 10px;border-radius:999px;
+  background:var(--surface-2);color:var(--ink);font-size:13px;border:1px solid var(--line)}
+.aviso .pend b{font-weight:600;color:var(--muted);font-size:12px}
 .mini{flex:0 0 auto;padding:6px 10px;border-radius:9px;background:var(--surface-2);
   color:var(--ink-2);font-size:12.5px}
 .mini.peligro{color:var(--neg);background:rgba(230,103,103,.12)}
@@ -299,7 +303,7 @@ var store = {
 /* Versión de la app. La subo cada vez que te paso un index.html nuevo y se ve
    abajo de todo en "Más". Si no coincide con la que te dije, lo que está
    corriendo en el teléfono es la copia vieja, no el archivo que subiste. */
-var APP_VER = '14 · buscar en todo el historial';
+var APP_VER = '15 · pendientes a un toque y gráfico chico';
 
 var CFG = { url: store.get('g.url')||'', key: store.get('g.key')||'' };
 function guardarCfg(url,key){
@@ -604,6 +608,11 @@ document.getElementById('desc').addEventListener('input',function(){
 function sugerir(){
   var d=(document.getElementById('desc').value||'').trim().toLowerCase();
   [].forEach.call(document.querySelectorAll('.cat'),function(c){ c.classList.remove('sug'); });
+  if(ST.preCat){
+    var pre=document.querySelector('.cat[data-c="'+ST.preCat.replace(/"/g,'\\"')+'"]');
+    if(pre) pre.classList.add('sug');
+    return;
+  }
   if(d.length<2) return;
   var m=ST.cats.filter(function(c){ return c.nombre.toLowerCase().indexOf(d)===0; })[0];
   if(!m) return;
@@ -638,18 +647,84 @@ function guardar(categoria){
   var etiqueta=(ingreso?'+':'')+fmt(monto,ST.moneda)+' · '+categoria;
   limpiarCarga();
   if(navigator.vibrate) navigator.vibrate(16);
-
+  enviarMovimiento(m, etiqueta);
+}
+/* El envío con su red de seguridad (cola offline + Deshacer), común a la carga
+   normal y a los pendientes del mes. 'despues' corre aparte del then: si
+   fallara algo ahí no debe caer en el catch, que re-encolaría un movimiento que
+   ya se guardó. */
+function enviarMovimiento(m, etiqueta, despues){
   api(m).then(function(r){
     if(!r||!r.ok) throw new Error((r&&r.error)||'no se guardó');
     ST.resumen=r.resumen;
-    toast('✅ '+esc(etiqueta),'Deshacer',function(){ borrar(r.id); });
+    HISTO.datos=null;                       // el historial cambió
+    toast('✅ '+esc(etiqueta),'Deshacer',function(){ borrar(r.id); if(despues) despues(); });
+    if(despues) setTimeout(despues,0);
   }).catch(function(){
     encolar(m);
     toast('📥 '+esc(etiqueta)+' <span class="pill">sin señal</span>');
   });
 }
+
+/* ---------------- pendientes del mes, a un toque ----------------
+   Híbrido: si los últimos 3 importes de esa categoría son idénticos (gimnasio,
+   internet), es un gasto fijo y se guarda directo con "Deshacer". Si varían
+   (luz, gas) no adivino: abro Cargar con el importe y la categoría puestos y
+   confirmás con un toque. Ante la duda —sin historial, sin señal— va por la
+   vía segura, que es la que no guarda nada sola. */
+var HISTO={ datos:null, p:null };
+function historialParaPendientes(){
+  if(HISTO.datos) return Promise.resolve(HISTO.datos);
+  if(!HISTO.p){
+    HISTO.p=api({op:'listar',limite:5000},30000).then(function(r){
+      HISTO.p=null;
+      if(!r||!r.ok) throw new Error('error');
+      HISTO.datos=r.movimientos;
+      return HISTO.datos;
+    }).catch(function(e){ HISTO.p=null; throw e; });
+  }
+  return HISTO.p;
+}
+/* Los últimos 3 gastos en pesos de esa categoría, hasta hoy (hay cuotas con
+   fecha futura que no cuentan como "lo último que pagaste"). */
+function ultimosDe(categoria){
+  var hoy=hoyISO(), out=[];
+  (HISTO.datos||[]).forEach(function(m){
+    if(out.length<3 && m.categoria===categoria && m.fecha<=hoy && m.importe<0 &&
+       (m.moneda||'ARS')==='ARS') out.push(m);
+  });
+  return out;
+}
+window.tocarPendiente=function(k){
+  var it=((ST.resumen||{}).faltaCargar||{items:[]}).items[k];
+  if(!it) return;
+  historialParaPendientes().catch(function(){}).then(function(){
+    var u=ultimosDe(it.categoria), est=it.estimado||0;
+    var fijo = est>0 && u.length>=3 && u.every(function(m){
+      return Math.round(Math.abs(m.importe)*100)===Math.round(est*100);
+    });
+    var medio=u.length?(u[0].medio||''):'';
+    if(fijo){
+      if(navigator.vibrate) navigator.vibrate(16);
+      enviarMovimiento({ op:'agregar', id:nuevoIdLocal(), monto:est, moneda:'ARS', fecha:hoyISO(),
+        categoria:it.categoria, detalle:'', medio:medio, esIngreso:false, origen:'web' },
+        fmt(est,'ARS')+' · '+it.categoria, function(){ cargarMes(true); });
+      return;
+    }
+    // Variable (o sin datos): precargo y que confirme él con la categoría.
+    ST.monto = est>0 ? String(est).replace('.',',') : '';
+    ST.ingreso=false; ST.moneda='ARS'; ST.fecha=hoyISO(); ST.medio=medio;
+    ST.preCat=it.categoria;
+    var posicion=catsOrdenadas().map(function(c){ return c.nombre; }).indexOf(it.categoria);
+    ST.verTodas = posicion>=TOP_CATS;      // que se vea el botón, esté donde esté
+    document.getElementById('desc').value='';
+    irA('cargar'); pintarCats(); pintarChips(); pintarMonto();
+    document.getElementById('subCarga').textContent=
+      est>0?'Confirmá tocando '+it.categoria+' (o corregí el monto)':'Poné el monto y tocá '+it.categoria;
+  });
+};
 function limpiarCarga(){
-  ST.monto=''; ST.medio=''; ST.fecha=hoyISO(); ST.ingreso=false;
+  ST.monto=''; ST.medio=''; ST.fecha=hoyISO(); ST.ingreso=false; ST.preCat='';
   var d=document.getElementById('desc'); d.value=''; d.blur();
   document.getElementById('subCarga').textContent='Tocá una categoría para guardar';
   pintarMonto(); pintarChips();
@@ -936,6 +1011,10 @@ function cargarMes(silencioso){
     var y=cont.scrollTop;
     cont.innerHTML=htmlMes(r.resumen, r.serie||[]);
     if(silencioso) cont.scrollTop=y;      // no te tiro para arriba si estabas mirando abajo
+    // Para decidir en el toque si un pendiente es fijo hace falta el historial.
+    // Lo traigo ahora, en segundo plano, así el toque no espera la red.
+    var fc=r.resumen.faltaCargar;
+    if(fc && fc.items && fc.items.length) historialParaPendientes().catch(function(){});
   }).catch(function(){
     if(silencioso) return;
     cont.innerHTML='<div class="vacio">No pude conectarme.<br>Revisá la configuración en <b>Más</b>.</div>';
@@ -1003,8 +1082,13 @@ function htmlMes(m, serie){
   /* El disponible solo dice la verdad si lo que viene está cargado. Esto es lo
      que todavía no cargaste, con el monto de la última vez: por eso el "≈". */
   if(falta.total>0){
+    /* Un botón por categoría pendiente. Lo fijo se guarda de una; lo que cambia
+       de un mes a otro abre Cargar con el importe puesto (ver tocarPendiente). */
     h+='<div class="aviso">≈ '+fmtCorto(falta.total)+' sin cargar todavía'+
-       '<span>'+esc(falta.items.map(function(i){ return i.categoria; }).join(' · '))+'</span></div>';
+       '<div class="pends">'+falta.items.map(function(i,k){
+         return '<button class="pend" onclick="tocarPendiente('+k+')">'+emoji(i.categoria)+' '+
+           esc(i.categoria)+(i.estimado?' <b>'+fmtCompacto(i.estimado)+'</b>':'')+'</button>';
+       }).join('')+'</div></div>';
   }
 
   if(serie.length>1) h+=htmlEvolucion(serie);
@@ -1070,7 +1154,7 @@ function htmlEvolucion(serie){
   });
   var esc1=Math.max(maxPos, Math.abs(maxNeg))||1;
   var hayNeg = maxNeg<0;
-  var altoArriba = hayNeg?60:96, altoAbajo = hayNeg?40:4;
+  var altoArriba = hayNeg?26:36, altoAbajo = hayNeg?16:3;
 
   var barras=serie.map(function(m,i){
     var ult=i===serie.length-1;
@@ -1097,8 +1181,8 @@ function htmlEvolucion(serie){
 
   return '<div class="evo">'+
     '<div class="lab" style="font-size:10.5px;color:var(--muted);text-transform:uppercase;'+
-      'letter-spacing:.05em;font-weight:600;margin-bottom:9px">Ahorro mes a mes</div>'+
-    '<div class="evoGraf">'+barras+'<div class="evoCero" style="top:'+altoArriba+'px"></div></div>'+
+      'letter-spacing:.05em;font-weight:600;margin-bottom:6px">Ahorro mes a mes</div>'+
+    '<div class="evoGraf" style="height:'+(altoArriba+altoAbajo)+'px">'+barras+'<div class="evoCero" style="top:'+altoArriba+'px"></div></div>'+
     '<div class="evoEjes">'+ejes+'</div>'+
     '<div class="evoPie"><span>En curso <b style="color:var(--ink)">'+fmtCompacto(ult.ahorro)+'</b></span>'+
     '<span>Promedio '+fmtCompacto(prom)+'</span>'+
