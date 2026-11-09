@@ -9,7 +9,7 @@ const path = require('path');
 const VENDOR = path.join(__dirname, '..', 'node_modules', 'pdfjs-dist', 'legacy', 'build');
 
 (async () => {
-  const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+  const b = await chromium.launch(require('./navegador.js'));
   const ctx = await b.newContext({
     viewport: { width: 390, height: 844 }, deviceScaleFactor: 2,
     isMobile: true, hasTouch: true, locale: 'es-AR', serviceWorkers: 'block',
