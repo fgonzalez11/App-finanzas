@@ -19,7 +19,7 @@ const { chromium } = require('playwright');
   await p.reload();
   await p.waitForTimeout(1400);
 
-  for (const k of ['4', '5', '2', '3', '0', ',', '5', '0']) await p.click(`.tecla[data-k="${k}"]`);
+  await p.fill('#montoIn', '45230,50');   // el monto se escribe con el teclado del celular
   await p.fill('#desc', 'la anonima');
   await p.waitForTimeout(400);
   await p.screenshot({ path: 'shots/1-cargar.png' });
