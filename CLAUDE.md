@@ -247,8 +247,29 @@ Cada una costó un bug en producción. Están en orden de cuánto dolieron.
 
 ## Pendientes acordados con Fa
 
-No hay ninguno abierto ahora mismo. La lista de abajo es lo ya resuelto, para no
-perder el criterio con el que se decidió cada cosa.
+### Para cuando Fa esté en la computadora (requieren tocar el backend)
+
+Fa trabaja a veces desde el celular, donde solo se puede cambiar la app
+(`pwa/index.html`). Estas mejoras necesitan pegar archivos `.gs` en Apps Script y
+crear una Versión nueva, así que se juntan para hacerlas en una sola tanda desde la
+PC. **No hacerlas sin hablarlo antes con él.**
+
+1. **Ranking de categorías en Cargar: criterio.** Hoy `frecuenciaCategorias_`
+   (`06_Api.gs`) cuenta el uso en TODO el historial, a propósito: en 2026 Fa dejó
+   de cargar lo de todos los días y un ranking reciente lo escondería. Fa decidió
+   (2026-11-09) dejarlo así por ahora, pero quiere evaluar darle más peso a lo
+   reciente cuando esté en la PC. Ojo con los pocos movimientos de 2026.
+2. **Poder dejar la Persona en blanco al editar.** `camposDe_` (`06_Api.gs`)
+   descarta cualquier campo vacío, así que en Editar movimiento no se puede
+   sacarle la persona a un gasto: el cambio se ignora. Hay que aceptar el vacío
+   para `persona`.
+3. **Gastos cargados desde la app que quedan asignados a Bastian solos.** Sospecha:
+   `opAgregar_` (`06_Api.gs`) completa la persona cuando algún valor de la
+   columna TipoAsociado de la hoja Personas coincide con el tipo de la categoría.
+   Primero hay que mirar la hoja Personas (columna TipoAsociado en la fila de
+   Bastian, Noe y Nikin); si Bastian tiene un tipo cargado, alcanza con vaciarlo.
+   Telegram no lo hace y no se entendió por qué. Después, limpiar los movimientos
+   ya cargados mal.
 
 ### Hechos
 
@@ -324,5 +345,5 @@ preguntarse si tiene plata adentro.
 ## Estado
 
 - Backend: `13 · repartir una categoría en varias`
-- App: `14 · buscar en todo el historial`
+- App: `21 · Detalle a todo el ancho y 9 categorías`
 - Movimientos en la planilla: ~1030
