@@ -260,7 +260,7 @@ table.prev th{color:var(--muted);font-weight:600}
 
 <div id="app">
 
-  <section class="pantalla on" id="p-cargar">
+  <section class="pantalla" id="p-cargar">
     <div class="monto">
       <div class="cifra cero" id="cifra">$ 0</div>
       <input class="montoIn" id="montoIn" inputmode="decimal" enterkeyhint="done"
@@ -285,7 +285,7 @@ table.prev th{color:var(--muted);font-weight:600}
     <div class="scroll" id="lista"></div>
   </section>
 
-  <section class="pantalla" id="p-mes">
+  <section class="pantalla on" id="p-mes">
     <div class="titulo" id="tituloMes">Este mes</div>
     <div class="scroll" id="mes"></div>
   </section>
@@ -296,9 +296,9 @@ table.prev th{color:var(--muted);font-weight:600}
   </section>
 
   <nav class="tabs" id="tabs">
-    <button class="tab on" data-p="cargar"><span class="i">✚</span>Cargar</button>
+    <button class="tab on" data-p="mes"><span class="i">▤</span>Mes</button>
     <button class="tab" data-p="ultimos"><span class="i">☰</span>Últimos</button>
-    <button class="tab" data-p="mes"><span class="i">▤</span>Mes</button>
+    <button class="tab" data-p="cargar"><span class="i">✚</span>Cargar</button>
     <button class="tab" data-p="mas"><span class="i">⚙</span>Más</button>
   </nav>
 </div>
@@ -709,7 +709,7 @@ var store = {
 /* Versión de la app. La subo cada vez que te paso un index.html nuevo y se ve
    abajo de todo en "Más". Si no coincide con la que te dije, lo que está
    corriendo en el teléfono es la copia vieja, no el archivo que subiste. */
-var APP_VER = '19 · monto con el teclado del celular';
+var APP_VER = '20 · Mes de inicio y teclado al tocar Cargar';
 
 var CFG = { url: store.get('g.url')||'', key: store.get('g.key')||'' };
 function guardarCfg(url,key){
@@ -878,7 +878,16 @@ document.getElementById('btnCerrarSheet').onclick=cerrarSheet;
 
 /* ============================ navegación ============================== */
 document.getElementById('tabs').addEventListener('click',function(e){
-  var b=e.target.closest('.tab'); if(b) irA(b.dataset.p);
+  var b=e.target.closest('.tab'); if(!b) return;
+  irA(b.dataset.p);
+  if(b.dataset.p==='cargar') document.getElementById('montoIn').focus();
+});
+/* Tocar fuera del monto y del Detalle cierra el teclado. La pestaña Cargar queda
+   afuera de la regla: ahí el toque justamente lo abre. */
+document.addEventListener('pointerdown',function(e){
+  if(document.activeElement!==document.getElementById('montoIn')) return;
+  if(e.target.closest('#montoIn,#desc,.tab[data-p="cargar"]')) return;
+  document.getElementById('montoIn').blur();
 });
 function irA(p){
   [].forEach.call(document.querySelectorAll('.pantalla'),function(s){ s.classList.remove('on'); });
@@ -2400,7 +2409,7 @@ window.cargarConfigRemota=cargarConfigRemota;
   pintarAtajos();
 
   if(!CFG.url||!CFG.key){ irA('mas'); toast('Configurá la conexión para empezar'); }
-  else { cargarConfigRemota(); vaciarCola(); }
+  else { irA('mes'); cargarConfigRemota(); vaciarCola(); }
 
   /* updateViaCache:'none' obliga al teléfono a ir a buscar sw.js a la red en vez
      de leerlo de su caché. Y si aparece una versión nueva y toma el control,

@@ -19,6 +19,7 @@ const { chromium } = require('playwright');
   await p.reload();
   await p.waitForTimeout(1400);
 
+  await p.click('.tab[data-p="cargar"]');   // la app arranca en Mes
   await p.fill('#montoIn', '45230,50');   // el monto se escribe con el teclado del celular
   await p.fill('#desc', 'la anonima');
   await p.waitForTimeout(400);
