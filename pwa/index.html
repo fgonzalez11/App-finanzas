@@ -75,9 +75,19 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .atajo{flex:0 0 auto;max-width:200px;padding:7px 12px;border-radius:999px;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;background:var(--surface);border:1px solid var(--line);
   color:var(--ink);font-size:13.5px}
-.atajo{-webkit-touch-callout:none;user-select:none;-webkit-user-select:none}
 .atajo b{font-weight:600;color:var(--muted);font-size:12.5px;margin-left:3px}
 .atajo:active{transform:scale(.96);background:var(--surface-2)}
+/* Más: los accesos, en una fila de cuatro para no comer media pantalla */
+.acciones{display:flex;gap:8px;margin-bottom:18px}
+.acc{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 2px 8px;
+  border-radius:12px;background:var(--surface-2);color:var(--ink-2);font-size:11.5px;
+  text-decoration:none;line-height:1.1}
+.acc .e{font-size:20px;line-height:1}
+.acc:active{background:var(--surface-3)}
+.filaAtajo{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);
+  border-radius:12px;padding:9px 12px;margin-bottom:7px}
+.filaAtajo .txt{flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.filaAtajo .txt b{font-weight:600;color:var(--muted);font-size:12.5px;margin-left:4px}
 .verTodas{grid-column:1/-1;padding:9px;text-align:center;font-size:13px;color:var(--muted)}
 
 .teclado{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
@@ -313,7 +323,7 @@ var store = {
 /* Versión de la app. La subo cada vez que te paso un index.html nuevo y se ve
    abajo de todo en "Más". Si no coincide con la que te dije, lo que está
    corriendo en el teléfono es la copia vieja, no el archivo que subiste. */
-var APP_VER = '17 · atajos armados por vos';
+var APP_VER = '18 · atajos en Más y ajustes en una fila';
 
 var CFG = { url: store.get('g.url')||'', key: store.get('g.key')||'' };
 function guardarCfg(url,key){
@@ -721,41 +731,22 @@ window.atajoDesdeMovimiento=function(id){
   cerrarSheet();
   if(m) agregarAtajo({ categoria:m.categoria, detalle:m.detalle, monto:Math.abs(m.importe), medio:m.medio });
 };
+/* Se quitan desde Más. Sin confirmación: rehacer un atajo cuesta dos toques. */
 window.quitarAtajo=function(i){
   var l=leerAtajos(); l.splice(i,1);
   store.set('g.atajosMios',JSON.stringify(l));
-  cerrarSheet(); pintarAtajos(); toast('Atajo quitado');
+  pintarAtajos(); pintarMas(); toast('Atajo quitado');
 };
-(function(){
-  var el=document.getElementById('atajos'), t=null, largo=false, ocupado=false;
-  el.addEventListener('touchstart',function(e){
-    if(!e.target.closest('.atajo')) return;
-    largo=false; clearTimeout(t);
-    t=setTimeout(function(){ largo=true; if(navigator.vibrate) navigator.vibrate(20); },550);
-  },{passive:true});
-  ['touchend','touchmove','touchcancel'].forEach(function(ev){
-    el.addEventListener(ev,function(){ clearTimeout(t); },{passive:true});
-  });
-  el.addEventListener('contextmenu',function(e){ e.preventDefault(); });
-  el.addEventListener('click',function(e){
-    var b=e.target.closest('.atajo'); if(!b) return;
-    var i=+b.dataset.i, a=(ST.atajos||[])[i]; if(!a) return;
-    if(largo){        // mantuvo apretado: no se guarda nada, se ofrece quitarlo
-      largo=false;
-      abrirSheet('<h3>Quitar atajo</h3>'+
-        '<div style="color:var(--ink-2);margin-bottom:14px">'+emoji(a.categoria)+' '+
-        esc(a.detalle||a.categoria)+' · '+fmtCorto(a.monto)+'</div>'+
-        '<button class="btn peligro" onclick="quitarAtajo('+i+')">Quitar de los atajos</button>');
-      return;
-    }
-    if(ocupado) return;
-    ocupado=true; setTimeout(function(){ ocupado=false; },1200);   // un doble toque no duplica
-    if(navigator.vibrate) navigator.vibrate(16);
-    enviarMovimiento({ op:'agregar', id:nuevoIdLocal(), monto:a.monto, moneda:'ARS', fecha:hoyISO(),
-      categoria:a.categoria, detalle:a.detalle, medio:a.medio, esIngreso:false, origen:'web' },
-      fmt(a.monto,'ARS')+' · '+(a.detalle||a.categoria));
-  });
-})();
+document.getElementById('atajos').addEventListener('click',function(e){
+  var b=e.target.closest('.atajo'); if(!b||atajoOcupado) return;
+  var a=(ST.atajos||[])[+b.dataset.i]; if(!a) return;
+  atajoOcupado=true; setTimeout(function(){ atajoOcupado=false; },1200);   // un doble toque no duplica
+  if(navigator.vibrate) navigator.vibrate(16);
+  enviarMovimiento({ op:'agregar', id:nuevoIdLocal(), monto:a.monto, moneda:'ARS', fecha:hoyISO(),
+    categoria:a.categoria, detalle:a.detalle, medio:a.medio, esIngreso:false, origen:'web' },
+    fmt(a.monto,'ARS')+' · '+(a.detalle||a.categoria));
+});
+var atajoOcupado=false;
 
 /* ---------------- pendientes del mes, a un toque ----------------
    Híbrido: si los últimos 3 importes de esa categoría son idénticos (gimnasio,
@@ -1284,17 +1275,34 @@ function htmlEvolucion(serie){
 }
 
 /* ============================== más =================================== */
+function htmlAtajosMas(){
+  var l=leerAtajos();
+  var h='<div class="titulo enScroll">Atajos</div>';
+  if(!l.length){
+    return h+'<div class="nota" style="margin-top:0;margin-bottom:18px">Todavía no tenés ninguno. '+
+      'Agregalos con ★ Atajo al guardar un gasto, o tocando un movimiento en Últimos.</div>';
+  }
+  h+=l.map(function(a,i){
+    return '<div class="filaAtajo"><span class="txt">'+emoji(a.categoria)+' '+esc(a.detalle||a.categoria)+
+      '<b>'+fmtCorto(a.monto)+'</b></span>'+
+      '<button class="mini" onclick="quitarAtajo('+i+')">Quitar</button></div>';
+  }).join('');
+  return h+'<div style="height:11px"></div>';
+}
 function pintarMas(){
   var n=cola().length;
   document.getElementById('mas').innerHTML=
     (n?'<div class="tile" style="margin-bottom:14px"><div class="lab">Pendientes de sincronizar</div>'+
        '<div class="val">'+n+'</div><div style="height:10px"></div>'+
        '<button class="btn sec" onclick="vaciarCola()">Sincronizar ahora</button></div>':'')+
-    '<button class="btn sec" style="margin-bottom:10px" onclick="pantallaImportar()">💳 Importar resumen de tarjeta</button>'+
-    '<button class="btn sec" style="margin-bottom:10px" onclick="pantallaCategorias()">🧹 Depurar categorías</button>'+
-    (ST.planilla?'<a class="btn sec" style="display:block;margin-bottom:10px;text-decoration:none" href="'+
-      esc(ST.planilla)+'" target="_blank">📊 Abrir la planilla</a>':'')+
-    '<button class="btn sec" style="margin-bottom:22px" onclick="cargarConfigRemota(true)">🔄 Recargar categorías</button>'+
+    '<div class="acciones">'+
+      '<button class="acc" onclick="pantallaImportar()" title="Importar resumen de tarjeta"><span class="e">💳</span>Tarjeta</button>'+
+      '<button class="acc" onclick="pantallaCategorias()" title="Depurar categorías"><span class="e">🧹</span>Depurar</button>'+
+      (ST.planilla?'<a class="acc" href="'+esc(ST.planilla)+'" target="_blank" title="Abrir la planilla">'+
+        '<span class="e">📊</span>Planilla</a>':'')+
+      '<button class="acc" onclick="cargarConfigRemota(true)" title="Recargar categorías"><span class="e">🔄</span>Recargar</button>'+
+    '</div>'+
+    htmlAtajosMas()+
     '<div class="titulo enScroll">Conexión</div>'+
     '<div class="campo"><label>URL de la app web (Apps Script)</label>'+
       '<input id="cfgUrl" value="'+esc(CFG.url)+'" placeholder="https://script.google.com/macros/s/.../exec" '+
