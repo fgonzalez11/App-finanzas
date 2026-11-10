@@ -69,6 +69,14 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .cat:active{transform:scale(.95);background:var(--surface-2)}
 .cat .e{font-size:19px;line-height:1}
 .cat.sug{border-color:var(--accent);background:var(--accent-soft);color:#9cc6f5}
+/* "Los de siempre": una sola fila que se desliza, para no comerle alto a las categorías */
+.atajos{flex:0 0 auto;display:flex;gap:7px;padding:0 16px 8px;overflow-x:auto;scrollbar-width:none}
+.atajos::-webkit-scrollbar{display:none}
+.atajo{flex:0 0 auto;max-width:200px;padding:7px 12px;border-radius:999px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;background:var(--surface);border:1px solid var(--line);
+  color:var(--ink);font-size:13.5px}
+.atajo b{font-weight:600;color:var(--muted);font-size:12.5px;margin-left:3px}
+.atajo:active{transform:scale(.96);background:var(--surface-2)}
 .verTodas{grid-column:1/-1;padding:9px;text-align:center;font-size:13px;color:var(--muted)}
 
 .teclado{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
@@ -252,6 +260,7 @@ table.prev th{color:var(--muted);font-weight:600}
       <button class="chip" id="chMoneda">$</button>
       <input id="desc" placeholder="Detalle (opcional)" autocomplete="off" autocorrect="off">
     </div>
+    <div class="atajos" id="atajos" style="display:none"></div>
     <div class="cats" id="cats"></div>
     <div class="teclado" id="teclado"></div>
   </section>
@@ -687,7 +696,7 @@ var store = {
 /* Versión de la app. La subo cada vez que te paso un index.html nuevo y se ve
    abajo de todo en "Más". Si no coincide con la que te dije, lo que está
    corriendo en el teléfono es la copia vieja, no el archivo que subiste. */
-var APP_VER = '15 · pendientes a un toque y gráfico chico';
+var APP_VER = '16 · los de siempre a un toque';
 
 var CFG = { url: store.get('g.url')||'', key: store.get('g.key')||'' };
 function guardarCfg(url,key){
@@ -1050,6 +1059,73 @@ function enviarMovimiento(m, etiqueta, despues){
   });
 }
 
+/* ---------------- los de siempre ----------------
+   Gastos chicos y repetidos que da fiaca cargar justamente por chicos (café,
+   colectivo, kiosco). Se arman solos mirando el historial reciente: misma
+   categoría + mismo detalle, 3 o más veces en 60 días, con importes parecidos.
+   Un toque guarda directo con "Deshacer". Lo mensual (gimnasio, internet) queda
+   afuera solo: tres cargas separadas por meses no entran en 45 días. */
+function normDetalle(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/\s+/g,' ').trim();
+}
+function calcularAtajos(movs){
+  var hoy=hoyISO(), desde=hoyISO(new Date(Date.now()-60*864e5));
+  var grupos={}, orden=[];
+  movs.forEach(function(m){
+    if(m.fecha>hoy||m.fecha<desde) return;
+    if(m.importe>=0||(m.moneda||'ARS')!=='ARS'||m.persona) return;
+    if(String(m.notas||'').indexOf('cuota:')===0) return;    // las cuotas no son de todos los días
+    if(!cat(m.categoria)) return;                             // categoría que ya no existe
+    var k=m.categoria+'|'+normDetalle(m.detalle);
+    if(!grupos[k]){ grupos[k]=[]; orden.push(k); }
+    grupos[k].push(m);                      // el backend los manda del más nuevo al más viejo
+  });
+  var out=[];
+  orden.forEach(function(k){
+    var g=grupos[k];
+    if(g.length<3) return;
+    if((new Date(g[0].fecha)-new Date(g[2].fecha))/864e5>45) return;
+    var a=[g[0],g[1],g[2]].map(function(m){ return Math.abs(m.importe); });
+    // Si el importe cambia mucho no lo ofrezco: guardaría un monto que no es.
+    if(Math.max.apply(null,a)/Math.min.apply(null,a)>1.15) return;
+    out.push({ categoria:g[0].categoria, detalle:g[0].detalle||'', monto:a[0],
+               medio:g[0].medio||'', n:g.length });
+  });
+  out.sort(function(x,y){ return y.n-x.n; });
+  return out.slice(0,4);
+}
+function pintarAtajos(lista){
+  ST.atajos=lista||[];
+  var el=document.getElementById('atajos');
+  el.style.display=ST.atajos.length?'':'none';
+  el.innerHTML=ST.atajos.map(function(a,i){
+    return '<button class="atajo" data-i="'+i+'">'+emoji(a.categoria)+' '+
+      esc(a.detalle||a.categoria)+' <b>'+fmtCorto(a.monto)+'</b></button>';
+  }).join('');
+}
+var ATAJOS_T=0, atajoOcupado=false;
+function cargarAtajos(){
+  if(!CFG.url||!CFG.key) return;
+  if(Date.now()-ATAJOS_T<180000) return;       // no más de una vez cada 3 minutos
+  ATAJOS_T=Date.now();
+  api({op:'listar',limite:400},20000).then(function(r){
+    if(!r||!r.ok) throw new Error('error');
+    var l=calcularAtajos(r.movimientos);
+    store.set('g.atajos',JSON.stringify(l));    // la próxima apertura ya los muestra al instante
+    pintarAtajos(l);
+  }).catch(function(){ ATAJOS_T=0; });         // sin señal: no pasa nada, quedan los de la vez anterior
+}
+document.getElementById('atajos').addEventListener('click',function(e){
+  var b=e.target.closest('.atajo'); if(!b||atajoOcupado) return;
+  var a=(ST.atajos||[])[+b.dataset.i]; if(!a) return;
+  atajoOcupado=true; setTimeout(function(){ atajoOcupado=false; },1200);   // un doble toque no duplica
+  if(navigator.vibrate) navigator.vibrate(16);
+  enviarMovimiento({ op:'agregar', id:nuevoIdLocal(), monto:a.monto, moneda:'ARS', fecha:hoyISO(),
+    categoria:a.categoria, detalle:a.detalle, medio:a.medio, esIngreso:false, origen:'web' },
+    fmt(a.monto,'ARS')+' · '+(a.detalle||a.categoria));
+});
+
 /* ---------------- pendientes del mes, a un toque ----------------
    Híbrido: si los últimos 3 importes de esa categoría son idénticos (gimnasio,
    internet), es un gasto fijo y se guarda directo con "Deshacer". Si varían
@@ -1294,6 +1370,7 @@ document.addEventListener('visibilitychange',function(){
   if(document.visibilityState!=='visible') return;
   vaciarCola();
   refrescarPantallaActiva();
+  cargarAtajos();
 });
 // iOS a veces devuelve la página desde su memoria sin disparar visibilitychange
 window.addEventListener('pageshow',function(e){ if(e.persisted) refrescarPantallaActiva(); });
@@ -2297,9 +2374,10 @@ window.cargarConfigRemota=cargarConfigRemota;
       {nombre:'Cosas para la casa',emoji:'🛋️'},{nombre:'Otros',emoji:'📌'}];
   }
   pintarCats(); pintarChips(); pintarMonto(); pintarPendientes();
+  try{ pintarAtajos(JSON.parse(store.get('g.atajos')||'[]')); }catch(e){}
 
   if(!CFG.url||!CFG.key){ irA('mas'); toast('Configurá la conexión para empezar'); }
-  else { cargarConfigRemota(); vaciarCola(); }
+  else { cargarConfigRemota(); vaciarCola(); setTimeout(cargarAtajos,900); }
 
   /* updateViaCache:'none' obliga al teléfono a ir a buscar sw.js a la red en vez
      de leerlo de su caché. Y si aparece una versión nueva y toma el control,
